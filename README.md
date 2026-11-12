@@ -31,3 +31,5 @@ If `config.js` is empty, the app runs in demo mode: everything is kept in the br
 ## Costs
 
 GitHub Pages and the Supabase free plan cost nothing at this scale (the free plan allows 50,000 monthly active users and a 500 MB database). Supabase pauses free projects after 7 days without activity; the workflow in `.github/workflows/keep-database-awake.yml` prevents that.
+
+Live at https://sarnishkour.github.io/conference-tracker/

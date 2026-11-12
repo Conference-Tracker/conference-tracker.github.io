@@ -446,7 +446,17 @@ function filtered(f = S.f) {
   return rows.sort(sorters[S.sort || "deadline"]);
 }
 const activeCount = (f = S.f) => Object.values(f).reduce((n, a) => n + a.length, 0);
-const QUICK = [["status","Open for submissions","Open now"],["tiers","A*","A*"],["tiers","A","A"],["countries","India","India"],["regions","Europe","Europe"],["years","2027","2027"]];
+// Quick filters are built from the person's own preferences, so they're relevant to them.
+const DOC_OPT = "Has a doctoral colloquium or consortium";
+function quickFilters() {
+  const u = S.user || {};
+  const q = [["status","Open for submissions","Open now"], ["status","Upcoming","Upcoming"]];
+  (u.tiers || []).forEach(t => q.push(["tiers", t, t]));
+  (u.regions || []).filter(r => REGIONS.includes(r)).forEach(r => q.push(["regions", r, r]));
+  (u.countries || []).slice(0, 3).forEach(c => q.push(["countries", c, c]));
+  q.push(["doctoral", DOC_OPT, "Doctoral track"]);
+  return q;
+}
 
 function discover() {
   S.f = { ...blankF(), ...(S.f || {}) };
@@ -460,7 +470,7 @@ function discover() {
       <input class="search" id="q" type="search" placeholder="Search conference, school, journal, city" value="${esc(S.q)}" aria-label="Search conferences">
       <button class="btn" type="button" data-act="openFilters" style="white-space:nowrap;${n ? "border-color:var(--accent);color:var(--accent)" : ""}">Filters${n ? ` (${n})` : ""}</button>
     </div>
-    <div class="seg">${QUICK.map(([k, v, l]) => `<button class="chip" type="button" data-act="quick" data-k="${k}" data-v="${esc(v)}" aria-pressed="${S.f[k].includes(v)}">${esc(l)}</button>`).join("")}</div>
+    <div class="seg">${quickFilters().map(([k, v, l]) => `<button class="chip" type="button" data-act="quick" data-k="${k}" data-v="${esc(v)}" aria-pressed="${S.f[k].includes(v)}">${esc(l)}</button>`).join("")}</div>
   </div>
   <div class="scroll">
     ${!filtering ? `<div class="section-title">Recommended for you</div>
@@ -472,10 +482,11 @@ function discover() {
 }
 function discoverList() {
   const rows = filtered();
-  const chips = Object.entries(S.f).flatMap(([k, vals]) => vals.map(v => `<button class="chip" type="button" data-act="unfilter" data-k="${k}" data-v="${esc(v)}" aria-pressed="true" aria-label="Remove filter ${esc(v)}">${esc(v)} ✕</button>`)).join("");
+  const shown = new Set(quickFilters().map(([k, v]) => k + "|" + v));   // already visible in the quick row above
+  const chips = Object.entries(S.f).flatMap(([k, vals]) => vals.filter(v => !shown.has(k + "|" + v)).map(v => `<button class="chip" type="button" data-act="unfilter" data-k="${k}" data-v="${esc(v)}" aria-pressed="true" aria-label="Remove filter ${esc(v)}">${esc(v)} ✕</button>`)).join("");
   const head = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="cmeta"><b style="color:var(--ink)">${rows.length}</b> conference${rows.length === 1 ? "" : "s"}</span>
     <label class="cmeta" style="display:flex;gap:6px;align-items:center">Sort <select id="sortSel" style="padding:4px 6px;border:1px solid var(--rule);border-radius:6px;background:var(--surface)">${SORTS.map(([k, l]) => `<option value="${k}"${(S.sort || "deadline") === k ? " selected" : ""}>${l}</option>`).join("")}</select></label></div>`;
-  return head + (chips ? `<div class="chips">${chips}<button class="chip" type="button" data-act="clearFilters">Clear all</button></div>` : "")
+  return head + (activeCount() ? `<div class="chips">${chips}<button class="chip" type="button" data-act="clearFilters">Clear all filters</button></div>` : "")
     + (rows.length ? rows.map(card).join("") : `<div class="empty">No conferences match these filters. Remove a filter to see more.</div>`);
 }
 function filterSheet() {
@@ -782,9 +793,8 @@ function profile() {
     <button class="btn block" type="button" data-act="mySug">My suggestions${(S.suggestions || []).length ? ` (${S.suggestions.length})` : ""}</button>
     <button class="btn block" type="button" data-act="copyCV">Copy attended list for my CV</button>
     <button class="btn block" type="button" data-act="privacy">Privacy and your data</button>
-    <button class="btn block" type="button" data-act="board">Leaders and your badges</button>
     <button class="btn block" type="button" data-act="install">${INSTALL.prompt ? "Install the app" : "Add to home screen"}</button>
-    ${S.isAdmin ? `<button class="btn block" type="button" data-act="notes">${S.showNotes ? "Hide" : "Show"} notes for the build team</button>` : ""}
+    ${S.isAdmin ? `<button class="btn block" type="button" data-act="notes">${S.showNotes ? "Hide" : "Show"} build notes (only you see these)</button>` : ""}
     <button class="btn block" type="button" data-act="signout">Sign out</button>
     ${note("Settings and consent records; data export; account deletion (required under India's data protection law). Personal data is stored per account, separately from the conference database, so conference updates never touch it.")}
   </div>`;
@@ -956,7 +966,7 @@ document.addEventListener("click", async e => {
     case "mineTab": S.mineTab = v; break;
     case "openFilters": S.fDraft = { ...blankF(), ...JSON.parse(JSON.stringify(S.f || blankF())) }; openModal("filters"); break;
     case "fToggle": { const a2 = S.fDraft[b.dataset.k]; S.fDraft[b.dataset.k] = a2.includes(v) ? a2.filter(x => x !== v) : [...a2, v]; break; }
-    case "fReset": S.fDraft = blankF(); break;
+    case "fReset": S.fDraft = blankF(); S.f = blankF(); toast("All filters cleared"); break;
     case "applyFilters": S.f = S.fDraft; S.modal = null; popNav(); break;
     case "quick": case "unfilter": { const k = b.dataset.k; S.f[k] = S.f[k].includes(v) ? S.f[k].filter(x => x !== v) : [...S.f[k], v]; break; }
     case "clearFilters": S.f = blankF(); break;

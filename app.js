@@ -385,10 +385,10 @@ function home() {
   const soon = REAL.filter(c => matchesUser(c) && c.deadline && daysUntil(c.deadline) >= 0 && daysUntil(c.deadline) <= 90 && !(S.marks[c.id] && S.marks[c.id].status === "hidden"))
     .sort((a,b) => d(a.deadline) - d(b.deadline));
   const initials = (S.user.name || "?").split(/\s+/).filter(Boolean).map(w => w[0]).slice(0,2).join("").toUpperCase();
-  const tile = (n, label, tab) => `<button class="card tap" type="button" data-act="mineGo" data-v="${tab}" style="gap:0"><span style="font-family:var(--display);font-size:24px;font-variant-numeric:tabular-nums">${n}</span><span class="cmeta">${label}</span></button>`;
+  const tile = (n, label, tab) => `<button class="card tap" type="button" data-act="mineGo" data-v="${tab}" style="gap:0;padding:10px 8px;text-align:center"><span style="font-family:var(--display);font-size:24px;font-variant-numeric:tabular-nums">${n}</span><span class="cmeta" style="font-size:12px">${label}</span></button>`;
   return `<div class="appbar"><div style="flex:1"><div class="cmeta">Welcome back</div><h2>${esc(S.user.name || "Scholar")}</h2></div><button class="iconbtn" type="button" data-act="tab" data-v="reminders" aria-label="Reminders" style="position:relative">${ICON.bell2}${S.user.inapp && r.due.length ? `<span class="badge" style="left:auto;right:0;top:0">${r.due.length}</span>` : ""}</button><button class="iconbtn" type="button" data-act="tab" data-v="profile" aria-label="Profile"><span style="width:36px;height:36px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-weight:600;font-size:14px">${esc(initials)}</span></button></div>
   <div class="scroll">
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${tile(count("planning"), "Planning", "planning")}${tile(count("registered"), "Registered", "registered")}${tile(count("attended"), "Attended", "attended")}</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">${tile(count("considering"), "Considering", "considering")}${tile(count("planning"), "Planning", "planning")}${tile(count("registered"), "Registered", "registered")}${tile(count("attended"), "Attended", "attended")}</div>
     <div class="section-title">Needs your attention</div>
     ${S.user.inapp && r.due.length ? r.due.map(x => remItem(x, "due")).join("") : r.next
       ? `<div class="cmeta">Nothing due right now. Next up:</div>${remItem(r.next, "")}`
@@ -494,7 +494,7 @@ function filterSheet() {
   };
   return `<div class="modal-back" data-backdrop="1" style="place-items:end stretch;padding:0"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="fh" style="max-width:none;border-radius:18px 18px 0 0;height:88%;display:flex;flex-direction:column;padding:0;gap:0">
     <div style="display:flex;align-items:center;gap:8px;padding:12px 12px 12px 16px;border-bottom:1px solid var(--rule)"><h3 id="fh" style="flex:1">Filters</h3><button class="btn small" type="button" data-act="fReset">Clear all</button><button class="iconbtn" type="button" data-act="closeModal" aria-label="Close filters" style="font-size:20px;line-height:1">✕</button></div>
-    <div style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px;display:grid;gap:16px;align-content:start">${Object.keys(FKEYS).map(sec).join("")}</div>
+    <div class="fbody" style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px;display:grid;gap:16px;align-content:start">${Object.keys(FKEYS).map(sec).join("")}</div>
     <div style="padding:12px 16px;border-top:1px solid var(--rule);display:flex;gap:8px;background:var(--surface)"><button class="btn" type="button" data-act="closeModal">Cancel</button><button class="btn primary" type="button" data-act="applyFilters" style="flex:1">Show ${count} conference${count === 1 ? "" : "s"}</button></div>
   </div></div>`;
 }
@@ -819,8 +819,12 @@ function modal() {
     <div class="row"><button class="btn" type="button" data-act="permDeny">Don't allow</button><button class="btn primary" type="button" data-act="permAllow">Allow</button></div></div></div>`;
 }
 
+const KEEP_SCROLL = ".scroll, .seg, .fbody";
+function screenKey() { return [S.screen, S.tab, S.sub, S.detail, S.modal, S.obStep].join("|"); }
 function render() {
   const app = document.getElementById("app");
+  const key = screenKey(), keep = key === render._key ? [...app.querySelectorAll(KEEP_SCROLL)].map(el => [el.scrollTop, el.scrollLeft]) : null;
+  render._key = key;
   let html;
   if (S.screen === "welcome") html = welcome();
   else if (S.screen === "onboard") html = onboarding();
@@ -831,6 +835,7 @@ function render() {
       : S.tab === "mine" ? mine() : S.tab === "reminders" ? remindersScreen() : S.tab === "profile" ? profile() : S.tab === "leaders" ? leadersScreen() : S.tab === "discover" ? discover() : home()) + tabbar();
   }
   app.innerHTML = html + modal();
+  if (keep) [...app.querySelectorAll(KEEP_SCROLL)].forEach((el, i) => { if (keep[i]) { el.scrollTop = keep[i][0]; el.scrollLeft = keep[i][1]; } });
   save();
 }
 function scrollTop() { const s = document.querySelector(".scroll"); if (s) s.scrollTop = 0; }
@@ -943,7 +948,7 @@ document.addEventListener("click", async e => {
     case "setStatus": {
       const m = mark(id); const was = m.status;
       m.status = was === v ? undefined : v; m.changed = TODAY_ISO;
-      toast(m.status ? `Marked: ${ST[v].label}` : "Status cleared");
+      toast(m.status ? (m.status === "hidden" ? "Hidden. Bring it back any time from My list." : `Marked ${ST[v].label}. You'll find it in My list.`) : "Status cleared");
       if (m.status === "hidden") { S.detail = null; }
       break;
     }

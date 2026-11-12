@@ -292,6 +292,7 @@ function welcome() {
       <button class="btn block" type="button" data-act="signin" data-v="email">Send me a sign-in link</button>
     </div>`}
     <div class="cmeta" style="text-align:center">One account per email. If you've signed up before, this opens your existing account.</div>
+    <div class="cmeta" style="text-align:center"><a href="privacy.html">Privacy policy</a></div>
   </div>`;
 }
 function chipRow(list, selected, act) {

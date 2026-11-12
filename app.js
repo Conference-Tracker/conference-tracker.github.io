@@ -63,7 +63,8 @@ function rowToConf(r) {
     region: r.region, continent: r.continent, country: r.country, city: r.city || "", mode: r.mode || "",
     start: r.start_date || null, end: r.end_date || null, dateText: r.date_text || null, deadline: r.deadline || null,
     deadlineNote: r.deadline_note || null, areas: r.areas || [], j: r.journals || [], url: r.url || "", note: r.note || "",
-    override: r.override || null, placeholder: !!r.placeholder });
+    override: r.override || null, placeholder: !!r.placeholder,
+    groups: r.for_groups || [], fields: r.for_fields || [], doctoral: !!r.doctoral });
 }
 
 // ---------- Start ----------
@@ -78,56 +79,50 @@ async function boot() {
 function startApp(DATA) {
 const TB = { "A*":"ts", "A":"ta", "B":"tb2", "C":"tc", "General":"tg", "TBC":"tg" };
 const STATUSES = [
-  { k:"considering", label:"Under consideration", short:"Considering", next:"Added to your list. Reminder 30 days before the deadline." },
-  { k:"planning",    label:"Planning to submit",  short:"Planning",    next:"Reminders 30, 7 and 1 day before the deadline." },
-  { k:"submitted",   label:"Submitted",           short:"Submitted",   next:"Add your paper title and the decision date for a reminder." },
-  { k:"accepted",    label:"Accepted",            short:"Accepted",    next:"Add the registration deadline; we remind you a week before." },
-  { k:"registered",  label:"Registered",          short:"Registered",  next:"Travel and visa reminder a month ahead, and one week before." },
+  { k:"considering", label:"Under consideration", short:"Considering", next:"Reminders 45 and 14 days before the deadline, so you can decide in time." },
+  { k:"planning",    label:"Planning to submit",  short:"Planning",    next:"Reminders 30, 14, 7, 3 and 1 day before the deadline." },
+  { k:"submitted",   label:"Submitted",           short:"Submitted",   next:"Add the decision date: a reminder on that day, and again 3 days later if you haven't updated your status." },
+  { k:"accepted",    label:"Accepted",            short:"Accepted",    next:"Add the registration deadline: reminders 14 and 3 days before and on the day. If you haven't marked Registered, a nudge 3 days later." },
+  { k:"registered",  label:"Registered",          short:"Registered",  next:"Visa and travel reminder 90 days ahead for conferences abroad, then 30 and 7 days before the conference." },
   { k:"attended",    label:"Attended",            short:"Attended",    next:"Moves to your history. Add your role and paper for your CV." },
   { k:"hidden",      label:"Not interested",      short:"Hidden",      next:"Hidden from your lists. You can bring it back from My conferences." }
 ];
 const ST = Object.fromEntries(STATUSES.map(s => [s.k, s]));
 const REAL = DATA.filter(c => !c.placeholder);
-const ALL_AREAS = [...new Set(REAL.flatMap(c => c.areas))].sort();
 const ROLES = ["Paper presenter", "Symposium or panel", "Doctoral consortium", "Session chair or discussant", "Attendee"];
 
-// Disciplines follow the ABDC subject fields; specialisations follow AOM's 26 divisions and interest groups.
-const DISCIPLINES = [
-  ["mgmt","Management, strategy & organisations"],["hr","Human resources & industrial relations"],["mkt","Marketing"],
-  ["fin","Finance & banking"],["acc","Accounting"],["econ","Economics"],["is","Information systems"],
-  ["ops","Operations & supply chain"],["tour","Tourism & hospitality"],["law","Business law & taxation"]
-];
-const SPECS = [
-  ["CAR","Careers"],["CTO","Communication, digital technology & organisation"],["CM","Conflict management"],["CMS","Critical management studies"],
-  ["ENT","Entrepreneurship"],["GDO","Gender, race & diversity in organisations"],["HCM","Health care management"],["HR","Human resources"],
-  ["IM","International management"],["MC","Management consulting"],["MED","Management education & development"],["MH","Management history"],
-  ["MOC","Managerial & organisational cognition"],["MSR","Management, spirituality & religion"],["NEU","Organisational neuroscience"],
-  ["OB","Organisational behaviour"],["ODC","Organisation development & change"],["OMT","Organisation & management theory"],
-  ["ONE","Organisations & the natural environment"],["OSCM","Operations & supply chain management"],["PNP","Public & non-profit"],
-  ["RM","Research methods"],["SAP","Strategising, activities & practices"],["SIM","Social issues in management"],
-  ["STR","Strategic management"],["TIM","Technology & innovation management"]
-];
-const REGIONS = ["India","Asia-Pacific","Europe","North America","Latin America","Middle East & Africa","Online"];
-const CONT = { aom27:"Europe", euram27:"Europe", egos27:"Europe", bcerc27:"Europe", bam27:"Europe" };
-const AREA_MAP = {
-  "General management": { d:["mgmt"], s:[] }, "Entrepreneurship": { d:["mgmt"], s:["ENT"] }, "Strategy": { d:["mgmt"], s:["STR","SAP"] },
-  "OB & HR": { d:["mgmt","hr"], s:["OB","HR"] }, "Organization theory": { d:["mgmt"], s:["OMT"] }, "International business": { d:["mgmt"], s:["IM"] },
-  "Public & non-profit": { d:["mgmt"], s:["PNP"] }, "Sustainability": { d:["mgmt"], s:["ONE","SIM"] }, "Finance": { d:["fin","acc"], s:[] },
-  "Marketing": { d:["mkt"], s:[] }, "Information systems": { d:["is"], s:["CTO","TIM"] }, "Operations": { d:["ops"], s:["OSCM"] }, "Doctoral": { d:[], s:[] }
-};
+// Research categories: ANZSRC 2020 Fields of Research, the classification behind the ABDC list (taxonomy.js).
+// Stored as Division > Group > Field codes; people choose groups (disciplines) and optional fields (specialisations).
+const TAX = window.CT_TAX || [];
+const GROUPS = TAX.flatMap(dv => dv.groups.map(g => ({ ...g, div: dv.code, divLabel: dv.label })));
+const GROUP = Object.fromEntries(GROUPS.map(g => [g.code, g]));
+const FIELD = {}; GROUPS.forEach(g => g.fields.forEach(([code, name]) => FIELD[code] = { code, name, group: g.code }));
+const groupLabel = code => (GROUP[code] && GROUP[code].label) || code;
+const fieldLabel = code => (FIELD[code] && FIELD[code].name) || code;
+// Regions and countries (QS-style: region first, then optional countries)
+const REGIONS_DATA = window.CT_REGIONS || [];
+const REGION_OF = {}; REGIONS_DATA.forEach(r => r.countries.forEach(c => REGION_OF[c] = r.name));
+const REGIONS = REGIONS_DATA.map(r => r.name);
 DATA.forEach(c => {
-  c.continent = c.continent || (c.region === "India" ? "India" : (CONT[c.id] || "Varies"));
-  c.disc = [...new Set(c.areas.flatMap(a => (AREA_MAP[a] || {d:[]}).d))];
-  c.spec = [...new Set(c.areas.flatMap(a => (AREA_MAP[a] || {s:[]}).s))];
+  c.groups = c.groups || []; c.fields = c.fields || [];
+  if (!c.country) c.country = c.region === "India" ? "India" : "To be announced";
+  c.continent = REGION_OF[c.country] || null;
 });
+function locationOK(c, u = S.user) {
+  if (!c.continent) return true;                       // location still to be announced
+  if (!u.regions.includes(c.continent)) return false;
+  const chosen = (u.countries || []).filter(x => REGION_OF[x] === c.continent);
+  return !chosen.length || chosen.includes(c.country); // no countries picked = the whole region
+}
+function areaOK(c, u = S.user) {
+  if (!c.groups.some(g => u.discs.includes(g))) return false;
+  const mine = u.specs.filter(f => c.groups.includes(f.slice(0, 4)));
+  if (!mine.length) return true;                       // no specialisation chosen in these disciplines
+  const theirs = c.fields.filter(f => mine.some(m => m.slice(0, 4) === f.slice(0, 4)));
+  return !theirs.length || theirs.some(f => mine.includes(f)); // broad conferences match everyone in the discipline
+}
 function matchesUser(c) {
-  const u = S.user;
-  const disc = c.disc.filter(x => u.discs.includes(x));
-  if (!disc.length) return false;
-  if (u.specs.length && c.spec.length && !c.spec.some(x => u.specs.includes(x)) && !c.areas.includes("General management")) return false;
-  const regionOK = u.regions.includes(c.continent) || (c.continent === "Varies" && u.regions.some(r => r !== "India"));
-  if (!regionOK) return false;
-  return u.tiers.includes(c._tier === "General" ? "Unrated" : c._tier);
+  return areaOK(c) && locationOK(c) && S.user.tiers.includes(c._tier === "General" ? "Unrated" : c._tier);
 }
 const COUNTRIES = "Afghanistan|Albania|Algeria|Andorra|Angola|Antigua and Barbuda|Argentina|Armenia|Australia|Austria|Azerbaijan|Bahamas|Bahrain|Bangladesh|Barbados|Belarus|Belgium|Belize|Benin|Bhutan|Bolivia|Bosnia and Herzegovina|Botswana|Brazil|Brunei|Bulgaria|Burkina Faso|Burundi|Cabo Verde|Cambodia|Cameroon|Canada|Central African Republic|Chad|Chile|China|Colombia|Comoros|Congo|Costa Rica|Côte d'Ivoire|Croatia|Cuba|Cyprus|Czechia|Democratic Republic of the Congo|Denmark|Djibouti|Dominica|Dominican Republic|Ecuador|Egypt|El Salvador|Equatorial Guinea|Eritrea|Estonia|Eswatini|Ethiopia|Fiji|Finland|France|Gabon|Gambia|Georgia|Germany|Ghana|Greece|Grenada|Guatemala|Guinea|Guinea-Bissau|Guyana|Haiti|Honduras|Hong Kong|Hungary|Iceland|India|Indonesia|Iran|Iraq|Ireland|Israel|Italy|Jamaica|Japan|Jordan|Kazakhstan|Kenya|Kiribati|Kuwait|Kyrgyzstan|Laos|Latvia|Lebanon|Lesotho|Liberia|Libya|Liechtenstein|Lithuania|Luxembourg|Macao|Madagascar|Malawi|Malaysia|Maldives|Mali|Malta|Marshall Islands|Mauritania|Mauritius|Mexico|Micronesia|Moldova|Monaco|Mongolia|Montenegro|Morocco|Mozambique|Myanmar|Namibia|Nauru|Nepal|Netherlands|New Zealand|Nicaragua|Niger|Nigeria|North Korea|North Macedonia|Norway|Oman|Pakistan|Palau|Palestine|Panama|Papua New Guinea|Paraguay|Peru|Philippines|Poland|Portugal|Qatar|Romania|Russia|Rwanda|Saint Kitts and Nevis|Saint Lucia|Saint Vincent and the Grenadines|Samoa|San Marino|São Tomé and Príncipe|Saudi Arabia|Senegal|Serbia|Seychelles|Sierra Leone|Singapore|Slovakia|Slovenia|Solomon Islands|Somalia|South Africa|South Korea|South Sudan|Spain|Sri Lanka|Sudan|Suriname|Sweden|Switzerland|Syria|Taiwan|Tajikistan|Tanzania|Thailand|Timor-Leste|Togo|Tonga|Trinidad and Tobago|Tunisia|Türkiye|Turkmenistan|Tuvalu|Uganda|Ukraine|United Arab Emirates|United Kingdom|United States|Uruguay|Uzbekistan|Vanuatu|Vatican City|Venezuela|Vietnam|Yemen|Zambia|Zimbabwe".split("|");
 const firstName = () => (S.user.name || "").trim().split(/\s+/)[0] || "there";
@@ -147,10 +142,10 @@ ICON.bell2 = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke
 let INPUTS_T = null;
 
 // ---------- State (in memory; saved to the database through API) ----------
-const NEW_USER = (email, name) => ({ name: name || "", email, title: "", institution: "", role: "", country: "", discs: ["mgmt"], specs: [], ownTopic: "", regions: ["India"], tiers: ["A*","A","B"], inapp: true, system: false, consent: false, onboarded: false });
+const NEW_USER = (email, name) => ({ name: name || "", email, title: "", institution: "", role: "", country: "", discs: ["3507"], specs: [], ownTopic: "", regions: ["Asia"], countries: [], tiers: ["A*","A","B"], inapp: true, system: false, consent: false, onboarded: false, lbOptIn: false, lbName: "" });
 const S = { screen: "welcome", tab: "home", detail: null, sub: null, mineTab: "planning", q: "", f: null, sort: "deadline", showNotes: false, modal: null,
   obStep: 1, user: NEW_USER(""), marks: {}, suggestions: [], myFeedback: [], session: null, isAdmin: false, emailSent: null, busy: false,
-  host: { tab: "feedback", feedback: null, suggestions: null, names: {} } };
+  host: { tab: "feedback", feedback: null, suggestions: null, names: {} }, board: { tab: "reviewers", rows: null } };
 try { const p = JSON.parse(localStorage.getItem("ct-view") || "{}"); if (p.f) S.f = p.f; if (p.sort) S.sort = p.sort; } catch (e) {}
 
 // ---------- Saving: only what changed, one write at a time ----------
@@ -212,7 +207,6 @@ function deadlinePill(c) {
 }
 const whenText = c => c.start ? fmtRange(c.start, c.end) : (c.dateText || "Dates to be announced");
 const statusPill = id => { const m = S.marks[id]; return m && m.status ? `<span class="pill p-status">${esc(ST[m.status].short)}</span>` : ""; };
-const bellBtn = id => { const on = !!(S.marks[id] && S.marks[id].bell); return `<button class="bell" type="button" data-act="bell" data-id="${id}" aria-pressed="${on}" aria-label="${on ? "Turn off reminder" : "Remind me"}" title="${on ? "Reminder on" : "Remind me"}">${ICON.bell}</button>`; };
 const note = html => S.showNotes ? `<div class="note-be"><b>Back end:</b> ${html}</div>` : "";
 
 function card(c) {
@@ -224,7 +218,6 @@ function card(c) {
         <div class="cmeta">${esc(c.host)} · ${esc(c.city)}</div>
         <div class="cmeta">${esc(whenText(c))}</div>
       </button>
-      ${bellBtn(c.id)}
     </div>
     <div class="pills">${deadlinePill(c)}${statusPill(c.id)}<button class="btn small" type="button" data-act="open" data-id="${c.id}" style="margin-left:auto">${S.marks[c.id] && S.marks[c.id].status ? "Change status" : "Set status"}</button></div>
   </div>`;
@@ -233,47 +226,49 @@ function card(c) {
 // ---------- Reminders ----------
 function reminders() {
   const out = [];
+  const plural = n => n === 1 ? "1 day" : n + " days";
   REAL.forEach(c => {
-    const m = S.marks[c.id]; if (!m) return;
+    const m = S.marks[c.id]; if (!m || !m.status) return;
     const add = (date, text, target) => out.push({ c, date, text, target });
     const dl = c.deadline, st = c.start;
-    if (m.bell) {
-      if (dl) add(addDays(dl, -7), "Submission deadline in 7 days", dl);
-      if (st) add(addDays(st, -7), "Conference starts in a week", st);
-      if (!dl && !st) add(null, "You'll be reminded when dates are announced", null);
-    }
+    const abroad = c.country && c.country !== "India" && c.country !== "To be announced";
     switch (m.status) {
       case "considering":
-        if (dl) add(addDays(dl, -30), "Decide whether to submit: deadline in 30 days", dl);
-        else if (!st) add(null, "Deadline not announced yet", null);
+        if (dl) [45, 14].forEach(n => add(addDays(dl, -n), `Decide whether to submit: deadline in ${plural(n)}`, dl));
+        else add(null, "Submission deadline not announced yet", null);
         break;
       case "planning":
-        if (dl) [30, 7, 1].forEach(n => add(addDays(dl, -n), `Submission deadline in ${n === 1 ? "1 day" : n + " days"}`, dl));
-        else add(null, "Deadline not announced yet", null);
+        if (dl) [30, 14, 7, 3, 1].forEach(n => add(addDays(dl, -n), `Submission deadline in ${plural(n)}`, dl));
+        else add(null, "Submission deadline not announced yet", null);
         break;
       case "submitted":
-        if (m.decisionDate) add(m.decisionDate, "Decision expected", m.decisionDate);
+        if (m.decisionDate) { add(m.decisionDate, "Decision expected today", m.decisionDate); add(addDays(m.decisionDate, 3), "Did you hear back? Update your status", addDays(m.decisionDate, 3)); }
         else add(null, "Add the decision date to get a reminder", null);
         break;
       case "accepted":
-        if (m.regDeadline) { add(addDays(m.regDeadline, -7), "Registration closes in 7 days", m.regDeadline); add(m.regDeadline, "Registration closes today", m.regDeadline); }
-        else add(null, "Add the registration deadline to get a reminder", null);
+        if (m.regDeadline) {
+          [14, 3].forEach(n => add(addDays(m.regDeadline, -n), `Register: registration closes in ${plural(n)}`, m.regDeadline));
+          add(m.regDeadline, "Registration closes today. Mark Registered once you have", m.regDeadline);
+          add(addDays(m.regDeadline, 3), "Please mark that you've registered", addDays(m.regDeadline, 3));
+        } else add(null, "Add the registration deadline to get reminders", null);
         break;
       case "registered":
-        if (st) { add(addDays(st, -30), "Check travel and visa: conference in 30 days", st); add(addDays(st, -7), "Conference starts in a week", st); }
+        if (st) {
+          if (abroad) add(addDays(st, -90), "Visa and travel: conference in 90 days", st);
+          add(addDays(st, -30), "Conference in 30 days: check travel and accommodation", st);
+          add(addDays(st, -7), "Conference starts in a week", st);
+        }
         break;
     }
   });
   const live = out.filter(r => !r.target || r.target >= TODAY_ISO);
-  const seen = new Set();
-  const uniq = live.filter(r => { const k = r.c.id + r.date + r.text; if (seen.has(k)) return false; seen.add(k); return true; });
+  // For each conference only the latest reminder that has come due counts as due now
+  const dueByConf = {};
+  live.filter(r => r.date && r.date <= TODAY_ISO).forEach(r => { const k = r.c.id; if (!dueByConf[k] || r.date > dueByConf[k].date) dueByConf[k] = r; });
+  const due = Object.values(dueByConf).sort((a,b) => a.target.localeCompare(b.target));
+  const future = live.filter(r => r.date && r.date > TODAY_ISO).sort((a,b) => a.date.localeCompare(b.date));
   const week = addDays(TODAY_ISO, 7);
-  return {
-    due: uniq.filter(r => r.date && r.date <= TODAY_ISO).sort((a,b) => a.target.localeCompare(b.target)),
-    week: uniq.filter(r => r.date && r.date > TODAY_ISO && r.date <= week).sort((a,b) => a.date.localeCompare(b.date)),
-    later: uniq.filter(r => r.date && r.date > week).sort((a,b) => a.date.localeCompare(b.date)),
-    wait: uniq.filter(r => !r.date)
-  };
+  return { due, week: future.filter(r => r.date <= week), later: future.filter(r => r.date > week), wait: live.filter(r => !r.date), next: future[0] || null };
 }
 function remItem(r, cls) {
   const x = r.date ? d(r.date) : null;
@@ -304,6 +299,31 @@ function chipRow(list, selected, act) {
 function tierInfo() {
   return `<div class="card" style="background:var(--accent-soft);border-color:transparent"><div class="cmeta" style="color:var(--ink)"><b>About these tiers.</b> No official body ranks management conferences. The tiers here are worked out from the ABDC rank of the journals a conference publishes into and the standing of its host. <button type="button" data-act="howTiers" style="background:none;border:0;padding:0;color:var(--accent);text-decoration:underline">How tiers work</button></div></div>`;
 }
+function disciplinePicker(selected, act, counts) {
+  return TAX.map(dv => `<div style="margin-bottom:8px"><div class="cmeta" style="font-weight:600;margin-bottom:4px">${esc(dv.label)}</div><div class="chips">${dv.groups.map(g =>
+    `<button class="chip" type="button" data-act="${act}" data-v="${g.code}" aria-pressed="${selected.includes(g.code)}" title="${esc(g.name)}">${esc(g.label)}${counts ? ` (${counts[g.code] || 0})` : ""}</button>`).join("")}</div></div>`).join("");
+}
+function specPicker(discs, specs) {
+  return discs.filter(code => GROUP[code]).map(code => { const g = GROUP[code];
+    return `<details class="card" style="gap:6px" ${g.fields.some(([f]) => specs.includes(f)) || discs.length === 1 ? "open" : ""}><summary style="cursor:pointer;font-weight:600;font-size:14px">${esc(g.label)}${g.fields.filter(([f]) => specs.includes(f)).length ? ` · ${g.fields.filter(([f]) => specs.includes(f)).length} chosen` : ""}</summary>
+      <div class="chips">${g.fields.map(([f, name]) => `<button class="chip" type="button" data-act="toggleSpec" data-v="${f}" aria-pressed="${specs.includes(f)}">${esc(name)}</button>`).join("")}</div></details>`; }).join("");
+}
+function regionPicker(regions, countries) {
+  return `<div class="chips">${REGIONS.map(r => `<button class="chip" type="button" data-act="toggleRegion" data-v="${esc(r)}" aria-pressed="${regions.includes(r)}">${esc(r)}</button>`).join("")}</div>
+    ${regions.map(r => { const list = (REGIONS_DATA.find(x => x.name === r) || { countries: [] }).countries; const picked = countries.filter(c => REGION_OF[c] === r);
+      return `<details class="card" style="gap:6px;margin-top:8px"><summary style="cursor:pointer;font-size:14px"><b>${esc(r)}</b>: ${picked.length ? esc(picked.join(", ")) : "all countries"}</summary>
+        <div class="chips"><button class="chip" type="button" data-act="allCountries" data-v="${esc(r)}" aria-pressed="${!picked.length}">All of ${esc(r)}</button>${list.map(c => `<button class="chip" type="button" data-act="toggleCountry" data-v="${esc(c)}" aria-pressed="${picked.includes(c)}">${esc(c)}</button>`).join("")}</div></details>`; }).join("")}`;
+}
+function prefSummary(u) {
+  const regionText = u.regions.map(r => { const picked = (u.countries || []).filter(c => REGION_OF[c] === r); return picked.length ? `${r} (${picked.join(", ")})` : r; }).join(", ");
+  return `<dl class="kv">
+      <dt>Disciplines</dt><dd>${esc(u.discs.map(groupLabel).join(", ") || "None chosen")}</dd>
+      <dt>Specialisations</dt><dd>${esc(u.specs.map(fieldLabel).join(", ") || "All within your disciplines")}</dd>
+      ${u.ownTopic !== undefined ? `<dt>Topic</dt><dd>${esc(u.ownTopic || "Not set")}</dd>` : ""}
+      <dt>Regions</dt><dd>${esc(regionText || "None chosen")}</dd>
+      <dt>Tiers</dt><dd>${esc(u.tiers.join(", "))}</dd>
+    </dl>`;
+}
 function onboarding() {
   const u = S.user, step = S.obStep, steps = 4;
   const head = t => `<div class="appbar">${step > 1 ? `<button class="iconbtn" type="button" data-act="obBack" aria-label="Back">${ICON.back}</button>` : ""}<h2>${t}</h2></div>`;
@@ -318,17 +338,17 @@ function onboarding() {
       ${note("Profile fields on the user record. Name and email come from Google sign-in when used. The email is unique: one account per email, so the same person cannot register twice. Names need not be unique.")}`;
     btn = `<button class="btn primary block" type="button" data-act="obNext">Next</button>`;
   } else if (step === 2) {
-    const showSpecs = u.discs.includes("mgmt") || u.discs.includes("hr");
-    body = `<div><p class="cname" style="margin-bottom:6px">Your disciplines</p><div class="cmeta" style="margin-bottom:8px">Based on the ABDC subject fields. Choose all that apply.</div>${chipRow(DISCIPLINES, u.discs, "toggleDisc")}</div>
-      ${showSpecs ? `<div><p class="cname" style="margin-bottom:6px">Your specialisations <span class="cmeta">(optional)</span></p><div class="cmeta" style="margin-bottom:8px">Based on the Academy of Management's 26 divisions and interest groups. Leave empty to see everything in management.</div>${chipRow(SPECS, u.specs, "toggleSpec")}</div>` : ""}
+    body = `<div><p class="cname" style="margin-bottom:4px">Your disciplines</p><div class="cmeta" style="margin-bottom:8px">Choose all that apply.</div>${disciplinePicker(u.discs, "toggleDisc")}</div>
+      ${u.discs.length ? `<div><p class="cname" style="margin-bottom:4px">Your specialisations <span class="cmeta">(optional)</span></p><div class="cmeta" style="margin-bottom:8px">Leave empty to see everything in your disciplines.</div>${specPicker(u.discs, u.specs)}</div>` : ""}
+      <div class="cmeta">Categories follow the ANZSRC 2020 Fields of Research, the classification used by the ABDC Journal Quality List.</div>
       <div class="field"><label for="u-topic">Your research topic, in your words <span class="cmeta">(optional)</span></label><input id="u-topic" data-ufield="ownTopic" value="${esc(u.ownTopic)}" placeholder="For example, social entrepreneurship"></div>
-      ${note("Store disciplines and specialisations as tags; tag every conference the same way so feeds can match. Free-text topics help us spot missing areas.")}`;
+      ${note("Store ANZSRC group and field codes; every conference is tagged with the same codes so recommendations match precisely.")}`;
     btn = `<button class="btn primary block" type="button" data-act="obNext">Next</button>`;
   } else if (step === 3) {
-    body = `<div><p class="cname" style="margin-bottom:6px">Where would you present?</p>${chipRow(REGIONS.map(r => [r, r]), u.regions, "toggleRegion")}<div class="cmeta" style="margin-top:6px">Right now the app lists conferences in India and the major international meetings. More countries are being added.</div></div>
+    body = `<div><p class="cname" style="margin-bottom:4px">Where would you present?</p><div class="cmeta" style="margin-bottom:8px">Choose regions. To narrow down, pick countries inside a region; otherwise the whole region is included.</div>${regionPicker(u.regions, u.countries || [])}<div class="cmeta" style="margin-top:6px">The list currently covers India and the major international meetings. More countries are being added.</div></div>
       <div><p class="cname" style="margin-bottom:6px">Which tiers should we recommend?</p>${chipRow([["A*","A*"],["A","A"],["B","B"],["C","C"],["Unrated","Unrated"]], u.tiers, "toggleTier")}<div class="cmeta" style="margin-top:6px">This only shapes your recommendations. You can still browse every conference.</div></div>
       ${tierInfo()}
-      ${note("Store region and tier preferences; tag each conference with its region.")}`;
+      ${note("Store regions and countries; tag each conference with its country and region.")}`;
     btn = `<button class="btn primary block" type="button" data-act="obNext">Next</button>`;
   } else {
     body = `<div class="card">
@@ -352,12 +372,7 @@ function doneScreen() {
     <div class="mark">✓</div>
     <div class="stack"><h1>You're all set, ${esc(firstName())}</h1>
     <p>We found ${n} conference${n === 1 ? "" : "s"} that match your preferences.</p></div>
-    <div class="card"><dl class="kv">
-      <dt>Disciplines</dt><dd>${esc(u.discs.map(k => DISCIPLINES.find(x => x[0] === k)[1]).join(", ") || "None chosen")}</dd>
-      <dt>Focus</dt><dd>${esc(u.specs.map(k => SPECS.find(x => x[0] === k)[1]).join(", ") || "All of management")}</dd>
-      <dt>Regions</dt><dd>${esc(u.regions.join(", "))}</dd>
-      <dt>Tiers</dt><dd>${esc(u.tiers.join(", "))}</dd>
-    </dl></div>
+    <div class="card">${prefSummary(u)}</div>
     <button class="btn primary block" type="button" data-act="goHome">Go to my home</button>
     <div class="cmeta" style="text-align:center">You can change these any time in Profile.</div>
   </div>`;
@@ -373,18 +388,18 @@ function home() {
   <div class="scroll">
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${tile(count("planning"), "Planning", "planning")}${tile(count("registered"), "Registered", "registered")}${tile(count("attended"), "Attended", "attended")}</div>
     <div class="section-title">Needs your attention</div>
-    ${S.user.inapp && r.due.length ? r.due.map(x => remItem(x, "due")).join("") : `<div class="card"><div class="cmeta">Nothing due right now.</div></div>`}
+    ${S.user.inapp && r.due.length ? r.due.map(x => remItem(x, "due")).join("") : r.next
+      ? `<div class="cmeta">Nothing due right now. Next up:</div>${remItem(r.next, "")}`
+      : `<div class="card"><div class="cmeta">Nothing due right now. Choose a status on a conference, such as Planning to submit, and its reminders will appear here.</div></div>`}
     <div class="section-title">Deadlines in the next 90 days for you</div>
     ${soon.length ? soon.map(card).join("") : `<div class="card"><div class="cmeta">No matching deadlines in the next 90 days.</div></div>`}
-    <button class="card tap" type="button" data-act="tab" data-v="feedback" style="border-left:4px solid var(--accent)"><b>You're using an early preview</b><span class="cmeta">Tell us what works and what's missing. It takes a minute.</span></button>
+    <button class="card tap" type="button" data-act="tab" data-v="feedback" style="border-left:4px solid var(--accent)"><b>You're a founding tester</b><span class="cmeta">Tell us what works and what's missing, and earn your place on the leaderboard.</span></button>
     <div class="section-title">Quick actions</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <button class="btn" type="button" data-act="tab" data-v="discover">Browse all conferences</button>
-      <button class="btn" type="button" data-act="tab" data-v="reminders">See all reminders</button>
       <button class="btn" type="button" data-act="suggest">Suggest a conference</button>
       <button class="btn" type="button" data-act="howTiers">How tiers work</button>
-      <button class="btn" type="button" data-act="install">Add to home screen</button>
-      <button class="btn" type="button" data-act="tab" data-v="feedback">Send feedback</button>
+      <button class="btn" type="button" data-act="install">${INSTALL.prompt ? "Install the app" : "Add to home screen"}</button>
     </div>
     ${note("Home pulls together the user's counts, due reminders and matching deadlines. Suggestions go to a review queue for the editor.")}
   </div>`;
@@ -392,14 +407,9 @@ function home() {
 
 // ---------- Discover with filters ----------
 DATA.forEach(c => {
-  if (!c.country) {
-    if (c.region === "India") c.country = "India";
-    else if (!CONT[c.id]) c.country = "To be announced";
-    else { const parts = c.city.split(",").map(x => x.replace(/\(.*\)/, "").trim()); c.country = /venue/i.test(c.city) ? parts[0] : parts[parts.length - 1]; }
-  }
   const y = (c.start || c.dateText || "").match(/20\d\d/); c.year = y ? y[0] : "To be announced";
   c.fmt = /online/i.test(c.mode) && !/hybrid/i.test(c.mode) ? "Online" : /hybrid/i.test(c.mode) ? "Hybrid" : "In person";
-  c.regionF = c.continent === "Varies" ? "Location to be announced" : c.continent;
+  c.regionF = c.continent || "Location to be announced";
 });
 const FKEYS = {
   tiers:   { label:"Tier", opts:() => ["A*","A","B","C","Unrated"], get:c => c._tier === "General" ? "Unrated" : c._tier },
@@ -407,7 +417,8 @@ const FKEYS = {
   countries:{ label:"Country", opts:() => [...new Set(REAL.map(c => c.country))].sort((a,b) => a === "To be announced" ? 1 : b === "To be announced" ? -1 : a.localeCompare(b)), get:c => c.country },
   years:   { label:"Year", opts:() => [...new Set(REAL.map(c => c.year))].sort(), get:c => c.year },
   status:  { label:"Status", opts:() => ["Open for submissions","Upcoming","Past edition","Next edition TBA"], get:c => c._status.key === "open" ? "Open for submissions" : c._status.key === "upcoming" ? "Upcoming" : c._status.key === "past" ? "Past edition" : "Next edition TBA" },
-  discs:   { label:"Discipline", opts:() => DISCIPLINES.filter(([k]) => REAL.some(c => c.disc.includes(k))).map(x => x[1]), get:c => c.disc.map(k => DISCIPLINES.find(x => x[0] === k)[1]) },
+  discs:   { label:"Discipline", opts:() => GROUPS.map(g => g.label), get:c => c.groups.map(groupLabel) },
+  doctoral:{ label:"Doctoral track", opts:() => ["Has a doctoral colloquium or consortium"], get:c => c.doctoral ? "Has a doctoral colloquium or consortium" : "" },
   formats: { label:"Format", opts:() => ["In person","Hybrid","Online"], get:c => c.fmt }
 };
 const blankF = () => Object.fromEntries(Object.keys(FKEYS).map(k => [k, []]));
@@ -434,10 +445,10 @@ function filtered(f = S.f) {
   return rows.sort(sorters[S.sort || "deadline"]);
 }
 const activeCount = (f = S.f) => Object.values(f).reduce((n, a) => n + a.length, 0);
-const QUICK = [["status","Open for submissions","Open now"],["tiers","A*","A*"],["tiers","A","A"],["regions","India","India"],["regions","Europe","Europe"],["years","2027","2027"]];
+const QUICK = [["status","Open for submissions","Open now"],["tiers","A*","A*"],["tiers","A","A"],["countries","India","India"],["regions","Europe","Europe"],["years","2027","2027"]];
 
 function discover() {
-  if (!S.f) S.f = blankF();
+  S.f = { ...blankF(), ...(S.f || {}) };
   const filtering = activeCount() > 0 || (S.q || "").trim();
   const recs = REAL.filter(c => !(S.marks[c.id] && S.marks[c.id].status === "hidden") && matchesUser(c) && (c._status.key === "open" || c._status.key === "upcoming"))
     .sort((a,b) => (a.deadline && daysUntil(a.deadline) >= 0 ? d(a.deadline) : 9e15) - (b.deadline && daysUntil(b.deadline) >= 0 ? d(b.deadline) : 9e15) || TIER_RANK[a._tier] - TIER_RANK[b._tier]).slice(0, 2);
@@ -451,7 +462,9 @@ function discover() {
     <div class="seg">${QUICK.map(([k, v, l]) => `<button class="chip" type="button" data-act="quick" data-k="${k}" data-v="${esc(v)}" aria-pressed="${S.f[k].includes(v)}">${esc(l)}</button>`).join("")}</div>
   </div>
   <div class="scroll">
-    ${!filtering ? `<div class="section-title">Recommended for you</div>${recs.length ? recs.map(card).join("") : `<div class="empty">Nothing open matches your preferences right now.</div>`}<div class="section-title">All conferences</div>` : ""}
+    ${!filtering ? `<div class="section-title">Recommended for you</div>
+      <div class="cmeta">Open or upcoming conferences that match your disciplines, specialisations, regions and tiers, nearest deadline first. <button type="button" data-act="editPrefs" style="background:none;border:0;padding:0;color:var(--accent);text-decoration:underline">Edit preferences</button></div>
+      ${recs.length ? recs.map(card).join("") : `<div class="empty">Nothing open matches your preferences right now. Try widening them.</div>`}<div class="section-title">All conferences</div>` : ""}
     <div id="dlist" style="display:grid;gap:12px">${discoverList()}</div>
     ${note("Filter and sort on the server: tier, region, country, year, status, discipline and format are stored as fields on each conference. Saved filters could later power personal alerts.")}
   </div>`;
@@ -467,11 +480,21 @@ function discoverList() {
 function filterSheet() {
   const f = S.fDraft;
   const count = filtered(f).length;
-  const sec = k => { const F = FKEYS[k]; return `<div style="display:grid;gap:6px"><div class="section-title" style="margin:0">${F.label}</div><div class="chips">${F.opts().map(o => `<button class="chip" type="button" data-act="fToggle" data-k="${k}" data-v="${esc(o)}" aria-pressed="${f[k].includes(o)}">${esc(o)}</button>`).join("")}</div></div>`; };
-  return `<div class="modal-back" style="place-items:end stretch;padding:0"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="fh" style="max-width:none;border-radius:18px 18px 0 0;max-height:88%;display:flex;flex-direction:column;padding:0">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--rule)"><h3 id="fh">Filters</h3><button class="btn small" type="button" data-act="fReset">Clear all</button></div>
-    <div style="overflow-y:auto;padding:14px 16px;display:grid;gap:16px">${Object.keys(FKEYS).map(sec).join("")}</div>
-    <div style="padding:12px 16px;border-top:1px solid var(--rule);display:flex;gap:8px"><button class="btn" type="button" data-act="closeModal">Cancel</button><button class="btn primary" type="button" data-act="applyFilters" style="flex:1">Show ${count} conference${count === 1 ? "" : "s"}</button></div>
+  const sec = k => {
+    const F = FKEYS[k];
+    const others = { ...f, [k]: [] };            // counts reflect the other filters already chosen
+    const pool = filtered(others);
+    const cnt = o => pool.filter(c => { const v = F.get(c); return Array.isArray(v) ? v.includes(o) : v === o; }).length;
+    const opts = F.opts().map(o => [o, cnt(o)]);
+    const avail = opts.filter(([, n]) => n > 0).length;
+    return `<div style="display:grid;gap:6px"><div class="section-title" style="margin:0">${F.label}</div>
+      ${avail === 1 && opts.length > 1 ? `<div class="cmeta">Only one option matches your other filters.</div>` : ""}
+      <div class="chips">${opts.map(([o, n]) => `<button class="chip" type="button" data-act="fToggle" data-k="${k}" data-v="${esc(o)}" aria-pressed="${f[k].includes(o)}" style="${n || f[k].includes(o) ? "" : "opacity:.5"}">${esc(o)} (${n})</button>`).join("")}</div></div>`;
+  };
+  return `<div class="modal-back" data-backdrop="1" style="place-items:end stretch;padding:0"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="fh" style="max-width:none;border-radius:18px 18px 0 0;height:88%;display:flex;flex-direction:column;padding:0;gap:0">
+    <div style="display:flex;align-items:center;gap:8px;padding:12px 12px 12px 16px;border-bottom:1px solid var(--rule)"><h3 id="fh" style="flex:1">Filters</h3><button class="btn small" type="button" data-act="fReset">Clear all</button><button class="iconbtn" type="button" data-act="closeModal" aria-label="Close filters" style="font-size:20px;line-height:1">✕</button></div>
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px;display:grid;gap:16px;align-content:start">${Object.keys(FKEYS).map(sec).join("")}</div>
+    <div style="padding:12px 16px;border-top:1px solid var(--rule);display:flex;gap:8px;background:var(--surface)"><button class="btn" type="button" data-act="closeModal">Cancel</button><button class="btn primary" type="button" data-act="applyFilters" style="flex:1">Show ${count} conference${count === 1 ? "" : "s"}</button></div>
   </div></div>`;
 }
 
@@ -492,7 +515,7 @@ function detail(c) {
     return "";
   };
   const jrs = c.j.length ? c.j.map(j => `<div class="jr"><b>${j.a ? "ABDC " + esc(j.a) : "Not listed"}</b><span>${esc(j.n)}</span><span class="ty">${esc(TYPE_LABEL[j.t])}</span></div>`).join("") : `<div class="cmeta">No journal route announced yet.</div>`;
-  return `<div class="appbar"><button class="iconbtn" type="button" data-act="back" aria-label="Back">${ICON.back}</button><h2 style="font-size:17px">Conference</h2>${bellBtn(c.id)}</div>
+  return `<div class="appbar"><button class="iconbtn" type="button" data-act="back" aria-label="Back">${ICON.back}</button><h2 style="font-size:17px">Conference</h2></div>
   <div class="scroll">
     <div class="crow">${tierBadge(c, true)}<div class="grow"><p class="cname" style="font-size:17px">${esc(c.name)}</p><div class="cmeta">${esc(c.host)}</div></div></div>
     <div class="pills">${deadlinePill(c)}${statusPill(c.id)}</div>
@@ -538,8 +561,8 @@ function remindersScreen() {
   return `<div class="appbar"><h2>Reminders</h2></div>
   <div class="scroll">
     ${!S.user.inapp ? `<div class="card"><div class="cmeta">In-app reminders are off. Turn them on in Profile.</div></div>` : total ? sec("Due now", r.due, "due") + sec("This week", r.week, "") + sec("Coming up", r.later, "") + sec("Waiting for dates", r.wait, "wait")
-      : `<div class="empty">No reminders yet. Tap the bell on a conference, or mark one as Planning to submit.</div>`}
-    ${note("A scheduler that works out each user's reminders every day from their statuses and bells, then sends them in the app, as device notifications (with permission) and by email.")}
+      : `<div class="empty">No reminders yet. Open a conference and choose a status, such as Under consideration or Planning to submit.</div>`}
+    ${note("A scheduler that works out each user's reminders every day from their statuses, then sends them in the app, as device notifications (with permission) and by email.")}
   </div>`;
 }
 
@@ -570,7 +593,7 @@ function suggestForm() {
     ${pick("format","Format",["In person","Hybrid","Online","I don't know"])}
     ${loc}
     <div class="section-title">Research area</div>
-    <div class="chips">${DISCIPLINES.map(([k, l]) => `<button class="chip" type="button" data-act="dDisc" data-v="${k}" aria-pressed="${g.discs.includes(k)}">${esc(l)}</button>`).join("")}<button class="chip" type="button" data-act="dDisc" data-v="unknown" aria-pressed="${g.discs.includes("unknown")}">I don't know</button></div>
+    <div class="chips">${GROUPS.map(gr => `<button class="chip" type="button" data-act="dDisc" data-v="${gr.code}" aria-pressed="${g.discs.includes(gr.code)}">${esc(gr.label)}</button>`).join("")}<button class="chip" type="button" data-act="dDisc" data-v="unknown" aria-pressed="${g.discs.includes("unknown")}">I don't know</button></div>
     <div class="section-title">Publication</div>
     <div class="field"><label for="d-journals">Linked journals</label><textarea id="d-journals" rows="2" data-dfield="journals" placeholder="One per line. Leave empty if you don't know">${esc(g.journals)}</textarea></div>
     ${pick("jlink","How papers reach the journal",["Special issue","Fast track","Editor workshop","Invited submission","I don't know"])}
@@ -601,8 +624,10 @@ function feedbackScreen() {
   const f = S.fbDraft || (S.fbDraft = { use:"", missing:"", today:"", rating:0 });
   const pick = (k, label, opts) => `<div class="field"><span style="font-size:13px;font-weight:500">${label}</span><div class="chips">${opts.map(o => `<button class="chip" type="button" data-act="fbPick" data-k="${k}" data-v="${esc(o)}" aria-pressed="${f[k] === o}">${esc(o)}</button>`).join("")}</div></div>`;
   const past = S.myFeedback || [];
+  const pts = myPoints();
   return `<div class="appbar"><h2>Feedback</h2></div>
   <div class="scroll">
+    <button class="card tap" type="button" data-act="board" style="border-left:4px solid var(--accent)"><b>Leaderboard</b><span class="cmeta">You have ${pts.reviewer + pts.suggester} points. See the Star Reviewers and Star Suggesters.</span></button>
     <div class="cmeta">This is an early preview. Your answers go straight to the team building the app.</div>
     ${pick("use","Would you use this app?",["Yes, regularly","Sometimes","Probably not"])}
     <div class="field"><span style="font-size:13px;font-weight:500">Overall, how useful is it?</span><div class="chips">${[1,2,3,4,5].map(n => `<button class="chip" type="button" data-act="fbRate" data-v="${n}" aria-pressed="${f.rating === n}" aria-label="${n} out of 5">${"★".repeat(n)}</button>`).join("")}</div></div>
@@ -627,7 +652,7 @@ function hostScreen() {
         <div><div style="font-family:var(--display);font-size:24px">${cnt("Yes, regularly")}</div><div class="cmeta">Would use regularly</div></div></div>
         <div class="cmeta">Sometimes: ${cnt("Sometimes")} · Probably not: ${cnt("Probably not")}</div></div>
       ${fb.length ? fb.map(x => `<div class="card"><div class="cmeta">${esc(fmtTs(x.created_at))} · ${esc(who(x.user_id))}</div>
-        <div class="pills">${x.rating ? `<span class="pill p-status">${"★".repeat(x.rating)}</span>` : ""}${x.would_use ? `<span class="pill p-muted">${esc(x.would_use)}</span>` : ""}</div>
+        <div class="pills">${x.rating ? `<span class="pill p-status">${"★".repeat(x.rating)}</span>` : ""}${x.would_use ? `<span class="pill p-muted">${esc(x.would_use)}</span>` : ""}<button class="chip" type="button" data-act="fbHelpful" data-id="${esc(x.id)}" aria-pressed="${!!x.helpful}" style="margin-left:auto">${x.helpful ? "Marked helpful" : "Mark helpful"}</button></div>
         ${x.missing ? `<div style="font-size:14px"><b>Missing or confusing:</b> ${esc(x.missing)}</div>` : ""}${x.how_today ? `<div style="font-size:14px"><b>Finds conferences through:</b> ${esc(x.how_today)}</div>` : ""}</div>`).join("") : `<div class="empty">No feedback yet.</div>`}`;
   } else {
     const LBL = { organiser:"Organised by", website:"Website", edition:"Edition", dateStatus:"Dates", start:"Starts", end:"Ends", approx:"Expected", deadlineStatus:"Deadline", deadline:"Deadline date", format:"Format", city:"City", country:"Country", rotates:"Venue rotates", journals:"Journals", jlink:"Journal route", proceedings:"Proceedings", doctoral:"Doctoral colloquium", fee:"Fee", source:"Found via", relation:"Connection", notes:"Notes" };
@@ -655,6 +680,64 @@ async function loadHost() {
   } catch (e) { console.error(e); toast("Couldn't load the dashboard."); S.host.feedback = S.host.feedback || []; S.host.suggestions = S.host.suggestions || []; }
   render();
 }
+// ---------- Beta leaderboard ----------
+function weekKey(ts) { const x = new Date(ts); const day = (x.getDay() + 6) % 7; x.setHours(0,0,0,0); x.setDate(x.getDate() - day); return x.toISOString().slice(0,10); }
+function myPoints() {
+  const perWeek = {}; let reviewer = 0;
+  (S.myFeedback || []).slice().sort((a,b) => String(a.created_at).localeCompare(String(b.created_at))).forEach(f => {
+    const w = weekKey(f.created_at); perWeek[w] = (perWeek[w] || 0) + 1;
+    if (perWeek[w] <= 3) reviewer += 3; if (f.helpful) reviewer += 5; });
+  const suggester = (S.suggestions || []).reduce((n, x) => n + (x.status === "added" ? 10 : 3), 0);
+  return { reviewer, suggester, founding: (S.myFeedback || []).length + (S.suggestions || []).length > 0 };
+}
+function boardScreen() {
+  const B = S.board, u = S.user, pts = myPoints();
+  (B.rows || []).forEach(r => { if (r.is_me) pts[r.board === "reviewers" ? "reviewer" : "suggester"] = r.points; }); // the server's count is authoritative
+  const list = (B.rows || []).filter(r => r.board === B.tab).sort((a,b) => b.points - a.points);
+  const top3 = list.slice(0, 3).map(r => r.display_name);
+  const rows = list.length ? list.map((r, i) => `<div class="card" style="${r.is_me ? "border-color:var(--accent)" : ""}"><div class="crow"><span class="tb ${i < 3 ? "ts" : "tg"}" style="min-width:36px">${i + 1}</span><div class="grow"><p class="cname">${esc(r.display_name)}${r.is_me ? " (you)" : ""}</p><div class="cmeta">${r.items} ${B.tab === "reviewers" ? "feedback" : "suggestion"}${r.items === 1 || B.tab === "reviewers" ? "" : "s"}${i < 3 ? ` · ${B.tab === "reviewers" ? "Star Reviewer" : "Star Suggester"}` : ""}</div></div><b style="font-variant-numeric:tabular-nums">${r.points}</b></div></div>`).join("")
+    : `<div class="empty">${B.rows ? "No one on this board yet. Be the first." : "Loading…"}</div>`;
+  return `<div class="appbar"><button class="iconbtn" type="button" data-act="closeSub" aria-label="Back">${ICON.back}</button><h2 style="font-size:18px">Leaderboard</h2></div>
+  <div class="scroll">
+    <div class="card"><p class="cname">Your points</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center">
+        <div><div style="font-family:var(--display);font-size:24px">${pts.reviewer}</div><div class="cmeta">as a reviewer</div></div>
+        <div><div style="font-family:var(--display);font-size:24px">${pts.suggester}</div><div class="cmeta">as a suggester</div></div></div>
+      <div class="pills">${pts.founding ? `<span class="pill p-status">Founding Tester</span>` : `<span class="cmeta">Send feedback or a suggestion to earn the Founding Tester badge.</span>`}${top3.length && list.some((r, i) => r.is_me && i < 3) ? `<span class="pill p-open">${B.tab === "reviewers" ? "Star Reviewer" : "Star Suggester"}</span>` : ""}</div>
+    </div>
+    <div class="card">
+      <div class="toggle-row"><div><b>Show me on the leaderboard</b><div class="cmeta">Only the name below is shown. Nothing else about you.</div></div><button class="switch" type="button" role="switch" aria-checked="${!!u.lbOptIn}" data-act="lbOpt" aria-label="Show me on the leaderboard"></button></div>
+      ${u.lbOptIn ? `<div class="field"><label for="lb-name">Name to show</label><input id="lb-name" data-ufield="lbName" value="${esc(u.lbName || defaultLbName())}" maxlength="40"></div>` : ""}
+    </div>
+    <div class="seg"><button class="chip" type="button" data-act="boardTab" data-v="reviewers" aria-pressed="${B.tab === "reviewers"}">Star Reviewers</button><button class="chip" type="button" data-act="boardTab" data-v="suggesters" aria-pressed="${B.tab === "suggesters"}">Star Suggesters</button></div>
+    ${rows}
+    <details class="card"><summary style="cursor:pointer;font-weight:600;font-size:14px">How points work</summary>
+      <div class="cmeta" style="color:var(--ink)">Feedback: 3 points each (up to 3 a week), plus 5 when the team marks it helpful. Suggestions: 3 points when sent, 10 once the conference is added to the app. The top three on each board are Star Reviewers and Star Suggesters. Everyone who contributes during the preview is a Founding Tester.</div></details>
+  </div>`;
+}
+const defaultLbName = () => { const p = (S.user.name || "").trim().split(/\s+/); return p.length > 1 ? `${p[0]} ${p[p.length - 1][0]}.` : (p[0] || "Scholar"); };
+async function loadBoard() {
+  try { S.board.rows = await API.leaderboard(); } catch (e) { console.error(e); S.board.rows = []; toast("Couldn't load the leaderboard."); }
+  render();
+}
+// Install prompt (Android/Chrome); iPhone uses Share > Add to Home Screen
+const INSTALL = { prompt: null };
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); INSTALL.prompt = e; render(); });
+window.addEventListener("appinstalled", () => { INSTALL.prompt = null; toast("Installed. Open it from your home screen."); });
+function closeModal() { if (!S.modal) return false; S.modal = null; render(); return true; }
+function closeModalByUser() { if (!S.modal) return; S.modal = null; popNav(); render(); }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModalByUser(); });
+document.addEventListener("click", e => { if (e.target.dataset && e.target.dataset.backdrop) { e.stopPropagation(); closeModalByUser(); } }, true);
+// The phone's back button closes a panel or returns from a detail screen instead of leaving the app
+window.addEventListener("popstate", () => {
+  if (S.skipPop) { S.skipPop = false; return; }
+  if (closeModal()) return;
+  if (S.sub || S.detail) { S.sub = null; S.detail = null; render(); }
+});
+function pushNav(tag) { try { history.pushState({ nav: tag }, ""); } catch (e) {} }
+function openModal(name) { S.modal = name; pushNav("modal"); }
+function popNav() { try { if (history.state && history.state.nav) { S.skipPop = true; history.back(); } } catch (e) {} }
+
 function profile() {
   const u = S.user;
   const lbl = (list, keys) => keys.map(k => (list.find(x => x[0] === k) || [k,k])[1]).join(", ");
@@ -664,13 +747,7 @@ function profile() {
     <div class="card" style="border-left:4px solid ${API.mode === "live" ? "var(--open)" : "var(--soon)"}"><b>${API.mode === "live" ? "Saved to your account" : "Demo mode"}</b><span class="cmeta">${API.mode === "live" ? "Your profile, lists and history are available on any phone or laptop where you sign in." : "Not connected to the database yet. Your data is kept in this browser."}</span></div>
     ${S.isAdmin ? `<button class="btn primary block" type="button" data-act="host">Host dashboard: feedback and suggestions</button>` : ""}
     <div class="section-title">Your preferences</div>
-    <div class="card"><dl class="kv">
-      <dt>Disciplines</dt><dd>${esc(lbl(DISCIPLINES, u.discs) || "None")}</dd>
-      <dt>Focus</dt><dd>${esc(lbl(SPECS, u.specs) || "All of management")}</dd>
-      <dt>Topic</dt><dd>${esc(u.ownTopic || "Not set")}</dd>
-      <dt>Regions</dt><dd>${esc(u.regions.join(", "))}</dd>
-      <dt>Tiers</dt><dd>${esc(u.tiers.join(", "))}</dd>
-    </dl><button class="btn small" type="button" data-act="editPrefs">Edit preferences</button></div>
+    <div class="card">${prefSummary(u)}<button class="btn small" type="button" data-act="editPrefs">Edit preferences</button></div>
     <div class="section-title">Reminders</div>
     <div class="card">
       <div class="toggle-row"><div><b>In-app reminders</b><div class="cmeta">Shown in the Reminders tab and on Home</div></div><button class="switch" type="button" role="switch" aria-checked="${u.inapp}" data-act="inapp" aria-label="In-app reminders"></button></div>
@@ -682,7 +759,8 @@ function profile() {
     <button class="btn block" type="button" data-act="mySug">My suggestions${(S.suggestions || []).length ? ` (${S.suggestions.length})` : ""}</button>
     <button class="btn block" type="button" data-act="copyCV">Copy attended list for my CV</button>
     <button class="btn block" type="button" data-act="privacy">Privacy and your data</button>
-    <button class="btn block" type="button" data-act="install">Add to home screen</button>
+    <button class="btn block" type="button" data-act="board">Leaderboard and your badges</button>
+    <button class="btn block" type="button" data-act="install">${INSTALL.prompt ? "Install the app" : "Add to home screen"}</button>
     ${S.isAdmin ? `<button class="btn block" type="button" data-act="notes">${S.showNotes ? "Hide" : "Show"} notes for the build team</button>` : ""}
     <button class="btn block" type="button" data-act="signout">Sign out</button>
     ${note("Settings and consent records; data export; account deletion (required under India's data protection law). Personal data is stored per account, separately from the conference database, so conference updates never touch it.")}
@@ -695,24 +773,24 @@ function tabbar() {
 }
 function modal() {
   if (S.modal === "filters") return filterSheet();
-  if (S.modal === "tiers") return `<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><h3 id="mh">How tiers work</h3>
+  if (S.modal === "tiers") return `<div class="modal-back" data-backdrop="1"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><h3 id="mh">How tiers work</h3>
     <p>No official body ranks management conferences, unlike computer science, where bodies such as CORE rank conferences directly. Here each conference gets a score:</p>
     <p><b>60%</b> from the best ABDC rank among the journals it publishes into (A* = 4 down to C = 1; an editor workshop counts one grade lower; proceedings or no journal count as 1).<br><b>40%</b> from its host: premier international associations 5, ISB and NIRF top 10 4, NIRF 11–20 3, NIRF 21–30 2, others 1.</p>
     <p>Score 4.0+ is A*, 3.2+ is A, 2.2+ is B, 1.4+ is C, below that Unrated. Each conference page shows its own working.</p>
     <div class="row"><button class="btn primary" type="button" data-act="closeModal">Close</button></div></div></div>`;
-  if (S.modal === "install") return `<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><h3 id="mh">Keep it on your home screen</h3>
+  if (S.modal === "install") return `<div class="modal-back" data-backdrop="1"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><h3 id="mh">Keep it on your home screen</h3>
     <p><b>iPhone (Safari):</b> tap the Share button, then “Add to Home Screen”.</p>
     <p><b>Android (Chrome):</b> tap the ⋮ menu, then “Add to Home screen”.</p>
     <p>It then opens from an icon, like an app.</p>
     <div class="row"><button class="btn primary" type="button" data-act="closeModal">Done</button></div></div></div>`;
-  if (S.modal === "privacy") return `<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><h3 id="mh">Privacy and your data</h3>
+  if (S.modal === "privacy") return `<div class="modal-back" data-backdrop="1"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><h3 id="mh">Privacy and your data</h3>
     <p>We keep your profile, preferences and conference list only to run the app for you. We never sell or share it.</p>
     <div class="row" style="justify-content:stretch;flex-direction:column"><button class="btn" type="button" data-act="exportData">Download my data</button><button class="btn" type="button" data-act="askDelete">Delete my data</button><button class="btn primary" type="button" data-act="closeModal">Close</button></div></div></div>`;
-  if (S.modal === "confirmDelete") return `<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><h3 id="mh">Delete your data?</h3>
+  if (S.modal === "confirmDelete") return `<div class="modal-back" data-backdrop="1"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><h3 id="mh">Delete your data?</h3>
     <p>This removes your profile, statuses, reminders and history from the app, and signs you out. It can't be undone.</p>
     <div class="row"><button class="btn" type="button" data-act="closeModal">Cancel</button><button class="btn primary" type="button" data-act="doDelete">Delete</button></div></div></div>`;
   if (S.modal !== "perm") return "";
-  return `<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><h3 id="mh">Allow notifications?</h3>
+  return `<div class="modal-back" data-backdrop="1"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><h3 id="mh">Allow notifications?</h3>
     <p>Conference Tracker would like to send you reminders about deadlines and conferences on your list.</p>
     <p style="font-size:12.5px">Your device will ask you to confirm. Reminder notifications start once the reminder service is switched on.</p>
     <div class="row"><button class="btn" type="button" data-act="permDeny">Don't allow</button><button class="btn primary" type="button" data-act="permAllow">Allow</button></div></div></div>`;
@@ -726,7 +804,7 @@ function render() {
   else if (S.screen === "done") html = doneScreen();
   else {
     const c = S.detail && byId(S.detail);
-    html = (S.sub === "host" ? hostScreen() : S.sub === "suggest" ? suggestForm() : S.sub === "mySug" ? mySuggestions() : c ? detail(c)
+    html = (S.sub === "board" ? boardScreen() : S.sub === "host" ? hostScreen() : S.sub === "suggest" ? suggestForm() : S.sub === "mySug" ? mySuggestions() : c ? detail(c)
       : S.tab === "mine" ? mine() : S.tab === "reminders" ? remindersScreen() : S.tab === "profile" ? profile() : S.tab === "feedback" ? feedbackScreen() : S.tab === "discover" ? discover() : home()) + tabbar();
   }
   app.innerHTML = html + modal();
@@ -755,17 +833,34 @@ document.addEventListener("click", async e => {
       if (S.obStep === 3 && (!u.regions.length || !u.tiers.length)) { toast("Choose at least one region and one tier."); return; }
       S.obStep++; render(); scrollTop(); return;
     case "obBack": S.obStep = Math.max(1, S.obStep - 1); break;
-    case "toggleDisc": u.discs = u.discs.includes(v) ? u.discs.filter(x => x !== v) : [...u.discs, v]; break;
+    case "toggleDisc": { if (u.discs.includes(v)) { u.discs = u.discs.filter(x => x !== v); u.specs = u.specs.filter(f => f.slice(0, 4) !== v); } else u.discs = [...u.discs, v]; break; }
     case "toggleSpec": u.specs = u.specs.includes(v) ? u.specs.filter(x => x !== v) : [...u.specs, v]; break;
-    case "toggleRegion": u.regions = u.regions.includes(v) ? u.regions.filter(x => x !== v) : [...u.regions, v]; break;
+    case "toggleRegion": {
+      if (u.regions.includes(v)) { u.regions = u.regions.filter(x => x !== v); u.countries = (u.countries || []).filter(c => REGION_OF[c] !== v); }
+      else u.regions = [...u.regions, v];
+      break;
+    }
+    case "toggleCountry": { const cs = u.countries || []; u.countries = cs.includes(v) ? cs.filter(x => x !== v) : [...cs, v]; const r = REGION_OF[v]; if (r && !u.regions.includes(r)) u.regions = [...u.regions, r]; break; }
+    case "allCountries": u.countries = (u.countries || []).filter(c => REGION_OF[c] !== v); break;
     case "toggleTier": u.tiers = u.tiers.includes(v) ? u.tiers.filter(x => x !== v) : [...u.tiers, v]; break;
     case "savePrefs": if (!u.consent) return; u.onboarded = true; u.consentAt = u.consentAt || new Date().toISOString(); S.screen = "done"; break;
     case "goHome": S.screen = "app"; S.tab = "home"; S.detail = null; break;
-    case "editPrefs": S.screen = "onboard"; S.obStep = 2; break;
+    case "editPrefs": S.screen = "onboard"; S.obStep = 2; S.detail = null; S.sub = null; break;
     case "editProfile": S.screen = "onboard"; S.obStep = 1; break;
     case "mineGo": S.tab = "mine"; S.mineTab = v; S.detail = null; break;
-    case "howTiers": S.modal = "tiers"; break;
-    case "install": S.modal = "install"; break;
+    case "howTiers": openModal("tiers"); break;
+    case "install": {
+      if (INSTALL.prompt) { const pr = INSTALL.prompt; INSTALL.prompt = null; try { pr.prompt(); await pr.userChoice; } catch (err) {} render(); return; }
+      openModal("install"); break;
+    }
+    case "board": pushNav("sub"); S.sub = "board"; S.board.rows = null; render(); scrollTop(); loadBoard(); return;
+    case "boardTab": S.board.tab = v; break;
+    case "lbOpt": u.lbOptIn = !u.lbOptIn; if (u.lbOptIn && !u.lbName) u.lbName = defaultLbName(); clearTimeout(SYNC.timer); await runSync(); S.board.rows = null; render(); loadBoard(); return;
+    case "fbHelpful": {
+      const x = (S.host.feedback || []).find(r => String(r.id) === id); if (!x) return;
+      try { await API.setFeedbackHelpful(x.id, !x.helpful); x.helpful = !x.helpful; const mine = (S.myFeedback || []).find(r => String(r.id) === id); if (mine) mine.helpful = x.helpful; toast(x.helpful ? "Marked helpful: 5 points to the sender" : "Unmarked"); } catch (err) { console.error(err); toast("Couldn't update it."); return; }
+      break;
+    }
     case "fbPick": S.fbDraft[b.dataset.k] = v; break;
     case "fbRate": S.fbDraft.rating = Number(v); break;
     case "fbSend": {
@@ -775,7 +870,7 @@ document.addEventListener("click", async e => {
       catch (err) { console.error(err); toast("Couldn't send it. Please try again."); return; }
       break;
     }
-    case "host": S.sub = "host"; S.host.feedback = null; S.host.suggestions = null; render(); loadHost(); return;
+    case "host": pushNav("sub"); S.sub = "host"; S.host.feedback = null; S.host.suggestions = null; render(); loadHost(); return;
     case "hostTab": S.host.tab = v; break;
     case "hostReload": S.host.feedback = null; S.host.suggestions = null; render(); loadHost(); return;
     case "sugStatus": {
@@ -783,13 +878,13 @@ document.addEventListener("click", async e => {
       try { await API.updateSuggestion(x.id, { status: v }); x.status = v; toast("Status updated"); } catch (err) { console.error(err); toast("Couldn't update it."); return; }
       break;
     }
-    case "suggest": S.sub = "suggest"; S.draft = S.draft || BLANK_DRAFT(); render(); scrollTop(); return;
-    case "mySug": S.sub = "mySug"; break;
-    case "closeSub": S.sub = null; break;
+    case "suggest": pushNav("sub"); S.sub = "suggest"; S.draft = S.draft || BLANK_DRAFT(); render(); scrollTop(); return;
+    case "mySug": if (S.sub !== "mySug") pushNav("sub"); S.sub = "mySug"; break;
+    case "closeSub": S.sub = null; popNav(); break;
     case "dpick": S.draft[b.dataset.k] = v; break;
     case "dDisc": { const g = S.draft; if (v === "unknown") g.discs = g.discs.includes("unknown") ? [] : ["unknown"]; else { g.discs = g.discs.filter(x => x !== "unknown"); g.discs = g.discs.includes(v) ? g.discs.filter(x => x !== v) : [...g.discs, v]; } break; }
-    case "privacy": S.modal = "privacy"; break;
-    case "closeModal": S.modal = null; break;
+    case "privacy": openModal("privacy"); break;
+    case "closeModal": S.modal = null; popNav(); break;
     case "suggestSend": {
       const g = S.draft;
       if (!g.name.trim() || !g.organiser.trim()) { toast("Add the conference name and who organises it."); return; }
@@ -819,9 +914,8 @@ document.addEventListener("click", async e => {
     }
     case "permDeny": u.system = false; S.modal = null; break;
     case "tab": S.tab = v; S.detail = null; S.sub = null; S.modal = null; render(); scrollTop(); return;
-    case "open": S.detail = id; render(); scrollTop(); return;
-    case "back": S.detail = null; break;
-    case "bell": { const m = mark(id); m.bell = !m.bell; toast(m.bell ? "Reminder on" : "Reminder off"); break; }
+    case "open": S.detail = id; S.modal = null; pushNav("detail"); render(); scrollTop(); return;
+    case "back": S.detail = null; popNav(); break;
     case "setStatus": {
       const m = mark(id); const was = m.status;
       m.status = was === v ? undefined : v; m.changed = TODAY_ISO;
@@ -831,10 +925,10 @@ document.addEventListener("click", async e => {
     }
     case "unhide": { mark(id).status = undefined; toast("Back in your lists"); break; }
     case "mineTab": S.mineTab = v; break;
-    case "openFilters": S.fDraft = JSON.parse(JSON.stringify(S.f || blankF())); S.modal = "filters"; break;
+    case "openFilters": S.fDraft = { ...blankF(), ...JSON.parse(JSON.stringify(S.f || blankF())) }; openModal("filters"); break;
     case "fToggle": { const a2 = S.fDraft[b.dataset.k]; S.fDraft[b.dataset.k] = a2.includes(v) ? a2.filter(x => x !== v) : [...a2, v]; break; }
     case "fReset": S.fDraft = blankF(); break;
-    case "applyFilters": S.f = S.fDraft; S.modal = null; break;
+    case "applyFilters": S.f = S.fDraft; S.modal = null; popNav(); break;
     case "quick": case "unfilter": { const k = b.dataset.k; S.f[k] = S.f[k].includes(v) ? S.f[k].filter(x => x !== v) : [...S.f[k], v]; break; }
     case "clearFilters": S.f = blankF(); break;
     case "notes": S.showNotes = !S.showNotes; break;

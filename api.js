@@ -15,10 +15,13 @@
     institution: (row && row.institution) || "",
     role: (row && row.role) || "",
     country: (row && row.country) || "",
-    discs: (row && row.discs) || ["mgmt"],
+    discs: (row && row.discs && row.discs.length) ? row.discs : ["3507"],
     specs: (row && row.specs) || [],
     ownTopic: (row && row.own_topic) || "",
-    regions: (row && row.regions) || ["India"],
+    regions: (row && row.regions && row.regions.length) ? row.regions : ["Asia"],
+    countries: (row && row.countries) || [],
+    lbOptIn: !!(row && row.lb_opt_in),
+    lbName: (row && row.lb_name) || "",
     tiers: (row && row.tiers) || ["A*","A","B"],
     inapp: row ? row.inapp !== false : true,
     system: !!(row && row.system_notif),
@@ -28,7 +31,8 @@
   const fromUser = (uid, u) => ({
     id: uid, name: u.name || "", title: u.title || null, institution: u.institution || null, role: u.role || null,
     country: u.country || null, discs: u.discs || [], specs: u.specs || [], own_topic: u.ownTopic || null,
-    regions: u.regions || [], tiers: u.tiers || [], inapp: !!u.inapp, system_notif: !!u.system,
+    regions: u.regions || [], countries: u.countries || [], tiers: u.tiers || [], inapp: !!u.inapp, system_notif: !!u.system,
+    lb_opt_in: !!u.lbOptIn, lb_name: u.lbName || null,
     consent_at: u.consent ? (u.consentAt || new Date().toISOString()) : null, onboarded: !!u.onboarded
   });
   const toMark = r => ({ status: r.status || undefined, bell: !!r.bell, paperTitle: r.paper_title || "", decisionDate: r.decision_date || "", regDeadline: r.reg_deadline || "", role: r.attend_role || "", note: r.note || "" });
@@ -69,6 +73,8 @@
     async hostSuggestions() { return must(await sb.from("suggestions").select("*").order("created_at", { ascending: false })); },
     async hostProfiles(ids) { if (!ids.length) return []; return must(await sb.from("profiles").select("id,name,role,institution,country").in("id", ids)); },
     async updateSuggestion(id, patch) { must(await sb.from("suggestions").update(patch).eq("id", id)); },
+    async setFeedbackHelpful(id, helpful) { must(await sb.from("feedback").update({ helpful }).eq("id", id)); },
+    async leaderboard() { return must(await sb.rpc("leaderboard")); },
     async deleteMyData(uid) {
       must(await sb.from("user_marks").delete().eq("user_id", uid));
       must(await sb.from("profiles").delete().eq("id", uid));
@@ -98,11 +104,27 @@
     async saveProfile(uid, u) { const x = load(); (x.users[uid] = x.users[uid] || {}).profile = fromUser(uid, u); store(x); },
     async saveMark(uid, cid, m) { const x = load(); const r = (x.users[uid] = x.users[uid] || {}); r.marks = r.marks || {}; if (emptyMark(m)) delete r.marks[cid]; else r.marks[cid] = m; store(x); },
     async addSuggestion(uid, name, organiser, details) { const x = load(); const row = { id: String(Date.now()), user_id: uid, name, organiser, details, status: "under_review", editor_note: null, created_at: new Date().toISOString() }; x.suggestions.unshift(row); store(x); return row; },
-    async addFeedback(uid, fb) { const x = load(); const row = { id: String(Date.now()), user_id: uid, would_use: fb.use || null, missing: fb.missing || null, how_today: fb.today || null, rating: fb.rating || null, created_at: new Date().toISOString() }; x.feedback.unshift(row); store(x); return row; },
+    async addFeedback(uid, fb) { const x = load(); const row = { id: String(Date.now()), user_id: uid, helpful: false, would_use: fb.use || null, missing: fb.missing || null, how_today: fb.today || null, rating: fb.rating || null, created_at: new Date().toISOString() }; x.feedback.unshift(row); store(x); return row; },
     async hostFeedback() { return load().feedback; },
     async hostSuggestions() { return load().suggestions; },
     async hostProfiles(ids) { const x = load(); return ids.map(id => x.users[id] && x.users[id].profile).filter(Boolean); },
     async updateSuggestion(id, patch) { const x = load(); const s = x.suggestions.find(r => r.id === id); if (s) Object.assign(s, patch); store(x); },
+    async setFeedbackHelpful(id, helpful) { const x = load(); const f = x.feedback.find(r => r.id === id); if (f) f.helpful = helpful; store(x); },
+    async leaderboard() {
+      // Same rules as the database function: only people who opted in, with the name they chose.
+      const x = load(), me = x.session && x.session.id, out = [];
+      Object.entries(x.users).forEach(([uid, rec]) => {
+        const p = rec.profile; if (!p || !p.lb_opt_in) return;
+        const name = p.lb_name || (p.name || "").split(" ")[0] || "Scholar";
+        const fb = x.feedback.filter(f => f.user_id === uid).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+        const wk = {}; let rp = 0;
+        fb.forEach(f => { const d = new Date(f.created_at); const day = (d.getDay() + 6) % 7; d.setHours(0,0,0,0); d.setDate(d.getDate() - day); const k = d.toISOString(); wk[k] = (wk[k] || 0) + 1; if (wk[k] <= 3) rp += 3; if (f.helpful) rp += 5; });
+        if (fb.length) out.push({ board: "reviewers", display_name: name, points: rp, items: fb.length, is_me: uid === me });
+        const sg = x.suggestions.filter(s => s.user_id === uid);
+        if (sg.length) out.push({ board: "suggesters", display_name: name, points: sg.reduce((n, s) => n + (s.status === "added" ? 10 : 3), 0), items: sg.length, is_me: uid === me });
+      });
+      return out;
+    },
     async deleteMyData(uid) { const x = load(); delete x.users[uid]; x.session = null; store(x); }
   };
 

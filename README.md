@@ -14,9 +14,9 @@ It runs as a web app on GitHub Pages (free) with a Supabase database and sign-in
 
 Disciplines and specialisations follow the **ANZSRC 2020 Fields of Research**, the classification used by the ABDC Journal Quality List (`taxonomy.js`). Codes are stored at three levels (Division > Group > Field); the app asks people for a discipline (group) and an optional specialisation (field). Conferences carry the same codes in `for_groups` and `for_fields`. Locations use regions and countries (QS-style): choose a region, and optionally narrow it to countries.
 
-## Beta leaderboard
+## Leaders tab
 
-Feedback earns 3 points (up to 3 a week) plus 5 when the host marks it helpful; a suggestion earns 3 points, or 10 once the conference is added. Only people who opt in appear, under the name they choose. Computed by the `leaderboard()` database function.
+Two boards: Top reviewers (feedback) and Top contributors (suggested conferences), with a podium, your own rank and a badge shelf. The season name and end date are set in `SEASON` near the top of the leaderboard section in `app.js`. Feedback earns 3 points (up to 3 a week) plus 5 when the host marks it helpful; a suggestion earns 3 points, or 10 once the conference is added. Only people who opt in appear, under the name they choose. Computed by the `leaderboard()` database function.
 
 ## One-time setup
 

@@ -137,6 +137,7 @@ const ICON = {
   bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></svg>'
 };
 
+ICON.trophy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M9 20h6M10 17h4"/></svg>';
 ICON.fb = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg>';
 ICON.bell2 = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></svg>';
 let INPUTS_T = null;
@@ -393,7 +394,6 @@ function home() {
       : `<div class="card"><div class="cmeta">Nothing due right now. Choose a status on a conference, such as Planning to submit, and its reminders will appear here.</div></div>`}
     <div class="section-title">Deadlines in the next 90 days for you</div>
     ${soon.length ? soon.map(card).join("") : `<div class="card"><div class="cmeta">No matching deadlines in the next 90 days.</div></div>`}
-    <button class="card tap" type="button" data-act="tab" data-v="feedback" style="border-left:4px solid var(--accent)"><b>You're a founding tester</b><span class="cmeta">Tell us what works and what's missing, and earn your place on the leaderboard.</span></button>
     <div class="section-title">Quick actions</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <button class="btn" type="button" data-act="tab" data-v="discover">Browse all conferences</button>
@@ -625,10 +625,9 @@ function feedbackScreen() {
   const pick = (k, label, opts) => `<div class="field"><span style="font-size:13px;font-weight:500">${label}</span><div class="chips">${opts.map(o => `<button class="chip" type="button" data-act="fbPick" data-k="${k}" data-v="${esc(o)}" aria-pressed="${f[k] === o}">${esc(o)}</button>`).join("")}</div></div>`;
   const past = S.myFeedback || [];
   const pts = myPoints();
-  return `<div class="appbar"><h2>Feedback</h2></div>
+  return `<div class="appbar"><button class="iconbtn" type="button" data-act="closeSub" aria-label="Back">${ICON.back}</button><h2 style="font-size:18px">Give feedback</h2></div>
   <div class="scroll">
-    <button class="card tap" type="button" data-act="board" style="border-left:4px solid var(--accent)"><b>Leaderboard</b><span class="cmeta">You have ${pts.reviewer + pts.suggester} points. See the Star Reviewers and Star Suggesters.</span></button>
-    <div class="cmeta">This is an early preview. Your answers go straight to the team building the app.</div>
+    <div class="cmeta">This is an early preview. Your answers go straight to the team building the app. Each one earns 3 points (up to 3 a week), and 5 more if the team marks it helpful.</div>
     ${pick("use","Would you use this app?",["Yes, regularly","Sometimes","Probably not"])}
     <div class="field"><span style="font-size:13px;font-weight:500">Overall, how useful is it?</span><div class="chips">${[1,2,3,4,5].map(n => `<button class="chip" type="button" data-act="fbRate" data-v="${n}" aria-pressed="${f.rating === n}" aria-label="${n} out of 5">${"★".repeat(n)}</button>`).join("")}</div></div>
     <div class="field"><label for="fb-m">What's missing or confusing?</label><textarea id="fb-m" rows="3" data-fbfield="missing" placeholder="Screens, conferences, features">${esc(f.missing)}</textarea></div>
@@ -690,29 +689,52 @@ function myPoints() {
   const suggester = (S.suggestions || []).reduce((n, x) => n + (x.status === "added" ? 10 : 3), 0);
   return { reviewer, suggester, founding: (S.myFeedback || []).length + (S.suggestions || []).length > 0 };
 }
-function boardScreen() {
-  const B = S.board, u = S.user, pts = myPoints();
-  (B.rows || []).forEach(r => { if (r.is_me) pts[r.board === "reviewers" ? "reviewer" : "suggester"] = r.points; }); // the server's count is authoritative
-  const list = (B.rows || []).filter(r => r.board === B.tab).sort((a,b) => b.points - a.points);
-  const top3 = list.slice(0, 3).map(r => r.display_name);
-  const rows = list.length ? list.map((r, i) => `<div class="card" style="${r.is_me ? "border-color:var(--accent)" : ""}"><div class="crow"><span class="tb ${i < 3 ? "ts" : "tg"}" style="min-width:36px">${i + 1}</span><div class="grow"><p class="cname">${esc(r.display_name)}${r.is_me ? " (you)" : ""}</p><div class="cmeta">${r.items} ${B.tab === "reviewers" ? "feedback" : "suggestion"}${r.items === 1 || B.tab === "reviewers" ? "" : "s"}${i < 3 ? ` · ${B.tab === "reviewers" ? "Star Reviewer" : "Star Suggester"}` : ""}</div></div><b style="font-variant-numeric:tabular-nums">${r.points}</b></div></div>`).join("")
-    : `<div class="empty">${B.rows ? "No one on this board yet. Be the first." : "Loading…"}</div>`;
-  return `<div class="appbar"><button class="iconbtn" type="button" data-act="closeSub" aria-label="Back">${ICON.back}</button><h2 style="font-size:18px">Leaderboard</h2></div>
+const SEASON = { name: "Preview season", ends: "2027-01-31" };
+const BOARDS = { reviewers: { tab: "Top reviewers", star: "Star reviewer", unit: ["feedback","feedback"], key: "reviewer" },
+                 suggesters: { tab: "Top contributors", star: "Star contributor", unit: ["suggestion","suggestions"], key: "suggester" } };
+const initialsOf = n => (n || "?").split(/\s+/).filter(Boolean).map(w => w[0]).slice(0,2).join("").toUpperCase();
+function leadersScreen() {
+  const B = S.board, u = S.user, pts = myPoints(), meta = BOARDS[B.tab];
+  (B.rows || []).forEach(r => { if (r.is_me) pts[BOARDS[r.board] ? BOARDS[r.board].key : "reviewer"] = r.points; }); // the server's count is authoritative
+  const ranked = bt => (B.rows || []).filter(r => r.board === bt).sort((a,b) => b.points - a.points || String(a.display_name).localeCompare(String(b.display_name)));
+  const list = ranked(B.tab);
+  const myIdx = list.findIndex(r => r.is_me), myPts = pts[meta.key];
+  const inTop3 = bt => ranked(bt).slice(0,3).some(r => r.is_me);
+  const ends = new Date(SEASON.ends + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const slot = (i, h) => { const r = list[i], cls = ["gold","silver","bronze"][i];
+    return `<div class="pod pod-${cls}">${i === 0 ? `<span class="crown" aria-hidden="true">${ICON.trophy}</span>` : ""}
+      <div class="pod-av${r ? "" : " pod-empty"}">${r ? esc(initialsOf(r.display_name)) : "?"}</div>
+      <div class="pod-name">${r ? esc(r.display_name) + (r.is_me ? " (you)" : "") : "Your name here"}</div>
+      <div class="pod-step" style="height:${h}px"><b>${i + 1}</b><span>${r ? r.points + " pts" : "—"}</span></div></div>`; };
+  const podium = B.rows ? `<div class="podium">${slot(1, 56)}${slot(0, 78)}${slot(2, 42)}</div>` : `<div class="empty">Loading…</div>`;
+  let you;
+  if (!u.lbOptIn) you = `<div class="you-card"><div class="grow"><b>You have ${myPts} points</b><div class="cmeta">You're not shown on the board yet.</div></div><button class="btn small" type="button" data-act="lbOpt">Show me</button></div>`;
+  else if (myIdx < 0) you = `<div class="you-card"><div class="grow"><b>You</b><div class="cmeta">${B.rows ? "Earn your first points to join this board." : "Loading…"}</div></div><b>${myPts} pts</b></div>`;
+  else { const above = list[myIdx - 1], gap = above ? above.points - list[myIdx].points + 1 : 0;
+    const target = above ? Math.max(0, Math.min(100, Math.round(100 * list[myIdx].points / (above.points + 1)))) : 100;
+    you = `<div class="you-card"><b class="you-rank">${myIdx + 1}</b><div class="grow"><b>You</b><div class="cmeta">${above ? `${gap} point${gap === 1 ? "" : "s"} to reach #${myIdx}` : "Top of the board. Well done."}</div><div class="bar"><span style="width:${target}%"></span></div></div><b>${list[myIdx].points} pts</b></div>`; }
+  const rest = list.slice(3).map((r, k) => `<div class="lb-row${r.is_me ? " me" : ""}"><span>${k + 4}</span><span class="grow">${esc(r.display_name)}${r.is_me ? " (you)" : ""}<span class="cmeta"> · ${r.items} ${meta.unit[r.items === 1 ? 0 : 1]}</span></span><b>${r.points}</b></div>`).join("");
+  const badge = (on, label) => `<span class="badge-chip${on ? " on" : ""}">${label}${on ? "" : `<span class="sr-only"> (not earned yet)</span>`}</span>`;
+  const fbCount = (S.myFeedback || []).length;
+  return `<div class="appbar"><div style="flex:1"><h2>Leaders</h2><div class="cmeta">${SEASON.name} · ends ${esc(ends)}</div></div></div>
   <div class="scroll">
-    <div class="card"><p class="cname">Your points</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center">
-        <div><div style="font-family:var(--display);font-size:24px">${pts.reviewer}</div><div class="cmeta">as a reviewer</div></div>
-        <div><div style="font-family:var(--display);font-size:24px">${pts.suggester}</div><div class="cmeta">as a suggester</div></div></div>
-      <div class="pills">${pts.founding ? `<span class="pill p-status">Founding Tester</span>` : `<span class="cmeta">Send feedback or a suggestion to earn the Founding Tester badge.</span>`}${top3.length && list.some((r, i) => r.is_me && i < 3) ? `<span class="pill p-open">${B.tab === "reviewers" ? "Star Reviewer" : "Star Suggester"}</span>` : ""}</div>
+    <div class="seg seg-full">${Object.entries(BOARDS).map(([k, m]) => `<button class="chip" type="button" data-act="boardTab" data-v="${k}" aria-pressed="${B.tab === k}">${m.tab}</button>`).join("")}</div>
+    ${podium}
+    ${you}
+    ${rest ? `<div class="lb-list">${rest}</div>` : ""}
+    <div class="section-title">Earn points</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button class="btn" type="button" data-act="fbForm">Give feedback${fbCount ? ` (${fbCount})` : ""}</button>
+      <button class="btn" type="button" data-act="suggest">Suggest a conference</button>
     </div>
+    <div class="section-title">Your badges</div>
+    <div class="badges">${badge(pts.founding, "Founding tester")}${badge(u.lbOptIn && inTop3("reviewers"), "Star reviewer")}${badge(u.lbOptIn && inTop3("suggesters"), "Star contributor")}</div>
     <div class="card">
-      <div class="toggle-row"><div><b>Show me on the leaderboard</b><div class="cmeta">Only the name below is shown. Nothing else about you.</div></div><button class="switch" type="button" role="switch" aria-checked="${!!u.lbOptIn}" data-act="lbOpt" aria-label="Show me on the leaderboard"></button></div>
+      <div class="toggle-row"><div><b>Show me on the board</b><div class="cmeta">Only the name below is shown. Nothing else about you.</div></div><button class="switch" type="button" role="switch" aria-checked="${!!u.lbOptIn}" data-act="lbOpt" aria-label="Show me on the board"></button></div>
       ${u.lbOptIn ? `<div class="field"><label for="lb-name">Name to show</label><input id="lb-name" data-ufield="lbName" value="${esc(u.lbName || defaultLbName())}" maxlength="40"></div>` : ""}
     </div>
-    <div class="seg"><button class="chip" type="button" data-act="boardTab" data-v="reviewers" aria-pressed="${B.tab === "reviewers"}">Star Reviewers</button><button class="chip" type="button" data-act="boardTab" data-v="suggesters" aria-pressed="${B.tab === "suggesters"}">Star Suggesters</button></div>
-    ${rows}
     <details class="card"><summary style="cursor:pointer;font-weight:600;font-size:14px">How points work</summary>
-      <div class="cmeta" style="color:var(--ink)">Feedback: 3 points each (up to 3 a week), plus 5 when the team marks it helpful. Suggestions: 3 points when sent, 10 once the conference is added to the app. The top three on each board are Star Reviewers and Star Suggesters. Everyone who contributes during the preview is a Founding Tester.</div></details>
+      <div class="cmeta" style="color:var(--ink)">Top reviewers: 3 points for each piece of feedback (up to 3 a week), plus 5 when the team marks it helpful. Top contributors: 3 points for each conference you suggest, 10 once it's added to the app. The top three on each board earn the Star reviewer or Star contributor badge. Everyone who contributes during the ${SEASON.name.toLowerCase()} is a Founding tester.</div></details>
   </div>`;
 }
 const defaultLbName = () => { const p = (S.user.name || "").trim().split(/\s+/); return p.length > 1 ? `${p[0]} ${p[p.length - 1][0]}.` : (p[0] || "Scholar"); };
@@ -732,7 +754,7 @@ document.addEventListener("click", e => { if (e.target.dataset && e.target.datas
 window.addEventListener("popstate", () => {
   if (S.skipPop) { S.skipPop = false; return; }
   if (closeModal()) return;
-  if (S.sub || S.detail) { S.sub = null; S.detail = null; render(); }
+  if (S.sub || S.detail) { S.sub = null; S.detail = null; render(); if (S.tab === "leaders") loadBoard(); }
 });
 function pushNav(tag) { try { history.pushState({ nav: tag }, ""); } catch (e) {} }
 function openModal(name) { S.modal = name; pushNav("modal"); }
@@ -759,7 +781,7 @@ function profile() {
     <button class="btn block" type="button" data-act="mySug">My suggestions${(S.suggestions || []).length ? ` (${S.suggestions.length})` : ""}</button>
     <button class="btn block" type="button" data-act="copyCV">Copy attended list for my CV</button>
     <button class="btn block" type="button" data-act="privacy">Privacy and your data</button>
-    <button class="btn block" type="button" data-act="board">Leaderboard and your badges</button>
+    <button class="btn block" type="button" data-act="board">Leaders and your badges</button>
     <button class="btn block" type="button" data-act="install">${INSTALL.prompt ? "Install the app" : "Add to home screen"}</button>
     ${S.isAdmin ? `<button class="btn block" type="button" data-act="notes">${S.showNotes ? "Hide" : "Show"} notes for the build team</button>` : ""}
     <button class="btn block" type="button" data-act="signout">Sign out</button>
@@ -769,7 +791,7 @@ function profile() {
 
 function tabbar() {
   const t = (k, label, icon) => `<button type="button" data-act="tab" data-v="${k}" aria-current="${S.tab === k ? "page" : "false"}">${icon}${label}</button>`;
-  return `<nav class="tabbar" aria-label="Main">${t("home","Home",ICON.home)}${t("discover","Discover",ICON.discover)}${t("mine","My list",ICON.mine)}${t("feedback","Feedback",ICON.fb)}${t("profile","Profile",ICON.profile)}</nav>`;
+  return `<nav class="tabbar" aria-label="Main">${t("home","Home",ICON.home)}${t("discover","Discover",ICON.discover)}${t("mine","My list",ICON.mine)}${t("leaders","Leaders",ICON.trophy)}${t("profile","Profile",ICON.profile)}</nav>`;
 }
 function modal() {
   if (S.modal === "filters") return filterSheet();
@@ -804,8 +826,8 @@ function render() {
   else if (S.screen === "done") html = doneScreen();
   else {
     const c = S.detail && byId(S.detail);
-    html = (S.sub === "board" ? boardScreen() : S.sub === "host" ? hostScreen() : S.sub === "suggest" ? suggestForm() : S.sub === "mySug" ? mySuggestions() : c ? detail(c)
-      : S.tab === "mine" ? mine() : S.tab === "reminders" ? remindersScreen() : S.tab === "profile" ? profile() : S.tab === "feedback" ? feedbackScreen() : S.tab === "discover" ? discover() : home()) + tabbar();
+    html = (S.sub === "fbForm" ? feedbackScreen() : S.sub === "host" ? hostScreen() : S.sub === "suggest" ? suggestForm() : S.sub === "mySug" ? mySuggestions() : c ? detail(c)
+      : S.tab === "mine" ? mine() : S.tab === "reminders" ? remindersScreen() : S.tab === "profile" ? profile() : S.tab === "leaders" ? leadersScreen() : S.tab === "discover" ? discover() : home()) + tabbar();
   }
   app.innerHTML = html + modal();
   save();
@@ -853,7 +875,8 @@ document.addEventListener("click", async e => {
       if (INSTALL.prompt) { const pr = INSTALL.prompt; INSTALL.prompt = null; try { pr.prompt(); await pr.userChoice; } catch (err) {} render(); return; }
       openModal("install"); break;
     }
-    case "board": pushNav("sub"); S.sub = "board"; S.board.rows = null; render(); scrollTop(); loadBoard(); return;
+    case "board": S.tab = "leaders"; S.detail = null; S.sub = null; S.modal = null; S.board.rows = null; render(); scrollTop(); loadBoard(); return;
+    case "fbForm": pushNav("sub"); S.sub = "fbForm"; render(); scrollTop(); return;
     case "boardTab": S.board.tab = v; break;
     case "lbOpt": u.lbOptIn = !u.lbOptIn; if (u.lbOptIn && !u.lbName) u.lbName = defaultLbName(); clearTimeout(SYNC.timer); await runSync(); S.board.rows = null; render(); loadBoard(); return;
     case "fbHelpful": {
@@ -880,7 +903,7 @@ document.addEventListener("click", async e => {
     }
     case "suggest": pushNav("sub"); S.sub = "suggest"; S.draft = S.draft || BLANK_DRAFT(); render(); scrollTop(); return;
     case "mySug": if (S.sub !== "mySug") pushNav("sub"); S.sub = "mySug"; break;
-    case "closeSub": S.sub = null; popNav(); break;
+    case "closeSub": S.sub = null; popNav(); if (S.tab === "leaders") { render(); loadBoard(); return; } break;
     case "dpick": S.draft[b.dataset.k] = v; break;
     case "dDisc": { const g = S.draft; if (v === "unknown") g.discs = g.discs.includes("unknown") ? [] : ["unknown"]; else { g.discs = g.discs.filter(x => x !== "unknown"); g.discs = g.discs.includes(v) ? g.discs.filter(x => x !== v) : [...g.discs, v]; } break; }
     case "privacy": openModal("privacy"); break;
@@ -913,7 +936,7 @@ document.addEventListener("click", async e => {
       break;
     }
     case "permDeny": u.system = false; S.modal = null; break;
-    case "tab": S.tab = v; S.detail = null; S.sub = null; S.modal = null; render(); scrollTop(); return;
+    case "tab": S.tab = v; S.detail = null; S.sub = null; S.modal = null; if (v === "leaders") S.board.rows = null; render(); scrollTop(); if (v === "leaders") loadBoard(); return;
     case "open": S.detail = id; S.modal = null; pushNav("detail"); render(); scrollTop(); return;
     case "back": S.detail = null; popNav(); break;
     case "setStatus": {

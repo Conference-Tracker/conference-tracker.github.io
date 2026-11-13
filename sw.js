@@ -1,6 +1,6 @@
 // Makes the app installable and quick to open. Pages and code come from the network first, with a saved copy
 // used only when offline. Database requests are never cached, so data is always current.
-const CACHE = "ct-v10";
+const CACHE = "ct-v11";
 const SHELL = ["./", "index.html", "app.js", "api.js", "config.js", "seed.js", "taxonomy.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon.svg"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {})); self.skipWaiting(); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });

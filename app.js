@@ -43,9 +43,10 @@ function status(c) {
   if (c.placeholder) return { key:"tbc", label:"To be confirmed", cls:"st-tba" };
   // Statuses describe submissions, which is what a researcher needs to know.
   if (c.deadline && daysUntil(c.deadline) >= 0) return { key:"open", label:"Open for submissions", cls:"st-open" };
-  if (c.start && daysUntil(c.end || c.start) >= 0) return { key:"closed", label:"Closed", cls:"st-up" };            // dates confirmed, deadline passed
-  if (c.deadline && !c.start && daysUntil(c.deadline) > -270) return { key:"closed", label:"Closed", cls:"st-up" }; // deadline passed, event still ahead
-  return { key:"expected", label:"Expected", cls:"st-tba" };                                                        // next call not out yet
+  const ahead = c.start ? daysUntil(c.end || c.start) >= 0 : (!c.deadline || daysUntil(c.deadline) > -270);       // this edition hasn't happened yet
+  const closedNote = /^(closed|submissions closed)|\(closed\)|likely closed/i.test(c.deadlineNote || "");
+  if (ahead && ((c.deadline && daysUntil(c.deadline) < 0) || closedNote)) return { key:"closed", label:"Closed", cls:"st-up" }; // deadline has passed
+  return { key:"expected", label:"Expected", cls:"st-tba" };                                                          // call not out yet (dates may be known)
 }
 
 function enrich(c) {

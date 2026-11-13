@@ -41,11 +41,11 @@ function daysUntil(iso) { return Math.round((d(iso) - TODAY) / 86400000); }
 
 function status(c) {
   if (c.placeholder) return { key:"tbc", label:"To be confirmed", cls:"st-tba" };
+  // Statuses describe submissions, which is what a researcher needs to know.
   if (c.deadline && daysUntil(c.deadline) >= 0) return { key:"open", label:"Open for submissions", cls:"st-open" };
-  if (c.start && daysUntil(c.start) >= 0) return { key:"upcoming", label:"Upcoming", cls:"st-up" };
-  if (c.end && daysUntil(c.end) < 0) return { key:"past", label:"Past edition", cls:"st-past" };
-  if (c.start) return { key:"upcoming", label:"Under way", cls:"st-up" };
-  return { key:"tba", label:"Next edition TBA", cls:"st-tba" };
+  if (c.start && daysUntil(c.end || c.start) >= 0) return { key:"closed", label:"Closed", cls:"st-up" };            // dates confirmed, deadline passed
+  if (c.deadline && !c.start && daysUntil(c.deadline) > -270) return { key:"closed", label:"Closed", cls:"st-up" }; // deadline passed, event still ahead
+  return { key:"expected", label:"Expected", cls:"st-tba" };                                                        // next call not out yet
 }
 
 function enrich(c) {
@@ -202,9 +202,9 @@ function deadlinePill(c) {
     const n = daysUntil(c.deadline);
     return `<span class="pill ${n <= 30 ? "p-soon" : "p-open"}">${n === 0 ? "Closes today" : n === 1 ? "Closes tomorrow" : `Closes in ${n} days`}</span>`;
   }
-  if (c._status.key === "upcoming") return c.deadline ? `<span class="pill p-muted">Submissions closed</span>` : `<span class="pill p-muted">Deadline to be announced</span>`;
-  if (c._status.key === "past") return `<span class="pill p-muted">Past edition</span>`;
-  return `<span class="pill p-muted">Dates to be announced</span>`;
+  if (c._status.key === "closed") return `<span class="pill p-muted">Closed</span>`;
+  if (c._status.key === "tbc") return `<span class="pill p-muted">To be confirmed</span>`;
+  return `<span class="pill p-muted">Expected · call not out yet</span>`;
 }
 const whenText = c => c.start ? fmtRange(c.start, c.end) : (c.dateText || "Dates to be announced");
 const statusPill = id => { const m = S.marks[id]; return m && m.status ? `<span class="pill p-status">${esc(ST[m.status].short)}</span>` : ""; };
@@ -397,7 +397,7 @@ function home() {
     ${soon.length ? soon.map(card).join("") : `<div class="card"><div class="cmeta">No matching deadlines in the next 90 days.</div></div>`}
     <div class="section-title">Quick actions</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <button class="btn" type="button" data-act="tab" data-v="discover">Browse all conferences</button>
+      <button class="btn" type="button" data-act="tab" data-v="discover" data-all="1">Browse all conferences</button>
       <button class="btn" type="button" data-act="suggest">Suggest a conference</button>
       <button class="btn" type="button" data-act="howTiers">How tiers work</button>
       <button class="btn" type="button" data-act="install">${INSTALL.prompt ? "Install the app" : "Add to home screen"}</button>
@@ -417,16 +417,18 @@ const FKEYS = {
   regions: { label:"Region", opts:() => [...REGIONS, "Location to be announced"], get:c => c.regionF },
   countries:{ label:"Country", opts:() => [...new Set(REAL.map(c => c.country))].sort((a,b) => a === "To be announced" ? 1 : b === "To be announced" ? -1 : a.localeCompare(b)), get:c => c.country },
   years:   { label:"Year", opts:() => [...new Set(REAL.map(c => c.year))].sort(), get:c => c.year },
-  status:  { label:"Status", opts:() => ["Open for submissions","Upcoming","Past edition","Next edition TBA"], get:c => c._status.key === "open" ? "Open for submissions" : c._status.key === "upcoming" ? "Upcoming" : c._status.key === "past" ? "Past edition" : "Next edition TBA" },
+  status:  { label:"Submissions", opts:() => ["Open","Closed","Expected"], get:c => c._status.key === "open" ? "Open" : c._status.key === "closed" ? "Closed" : "Expected" },
   discs:   { label:"Discipline", opts:() => GROUPS.map(g => g.label), get:c => c.groups.map(groupLabel) },
   doctoral:{ label:"Doctoral track", opts:() => ["Has a doctoral colloquium or consortium"], get:c => c.doctoral ? "Has a doctoral colloquium or consortium" : "" },
   formats: { label:"Format", opts:() => ["In person","Hybrid","Online"], get:c => c.fmt }
 };
 const blankF = () => Object.fromEntries(Object.keys(FKEYS).map(k => [k, []]));
 const SORTS = [["deadline","Nearest deadline"],["date","Conference date"],["tier","Highest tier"],["name","Name A–Z"]];
+const forYou = c => !(S.marks[c.id] && S.marks[c.id].status === "hidden") && matchesUser(c);
 function filtered(f = S.f) {
   const q = (S.q || "").toLowerCase().split(/\s+/).filter(Boolean);
   const rows = REAL.filter(c => {
+    if (S.dTab === "you" && !forYou(c)) return false;
     if (S.marks[c.id] && S.marks[c.id].status === "hidden") return false;
     for (const k of Object.keys(FKEYS)) {
       if (!f[k].length) continue;
@@ -436,7 +438,7 @@ function filtered(f = S.f) {
     const hay = [c.name, c.host, c.city, c.country, c.areas.join(" "), c.j.map(j => j.n).join(" ")].join(" ").toLowerCase();
     return q.every(w => hay.includes(w));
   });
-  const stRank = c => c._status.key === "open" ? 0 : c._status.key === "upcoming" ? 1 : c._status.key === "tba" ? 2 : 3;
+  const stRank = c => c._status.key === "open" ? 0 : c._status.key === "closed" ? 1 : c._status.key === "expected" ? 2 : 3;
   const sorters = {
     deadline: (a,b) => stRank(a) - stRank(b) || (a.deadline || a.start || "9").localeCompare(b.deadline || b.start || "9"),
     date: (a,b) => (a.start || "9").localeCompare(b.start || "9"),
@@ -450,7 +452,7 @@ const activeCount = (f = S.f) => Object.values(f).reduce((n, a) => n + a.length,
 const DOC_OPT = "Has a doctoral colloquium or consortium";
 function quickFilters() {
   const u = S.user || {};
-  const q = [["status","Open for submissions","Open now"], ["status","Upcoming","Upcoming"]];
+  const q = [["status","Open","Open now"], ["status","Expected","Expected"]];
   (u.tiers || []).forEach(t => q.push(["tiers", t, t]));
   (u.regions || []).filter(r => REGIONS.includes(r)).forEach(r => q.push(["regions", r, r]));
   (u.countries || []).slice(0, 3).forEach(c => q.push(["countries", c, c]));
@@ -460,9 +462,7 @@ function quickFilters() {
 
 function discover() {
   S.f = { ...blankF(), ...(S.f || {}) };
-  const filtering = activeCount() > 0 || (S.q || "").trim();
-  const recs = REAL.filter(c => !(S.marks[c.id] && S.marks[c.id].status === "hidden") && matchesUser(c) && (c._status.key === "open" || c._status.key === "upcoming"))
-    .sort((a,b) => (a.deadline && daysUntil(a.deadline) >= 0 ? d(a.deadline) : 9e15) - (b.deadline && daysUntil(b.deadline) >= 0 ? d(b.deadline) : 9e15) || TIER_RANK[a._tier] - TIER_RANK[b._tier]).slice(0, 2);
+  const you = S.dTab === "you", nYou = REAL.filter(forYou).length;
   const n = activeCount();
   return `<div class="appbar"><h2>Discover</h2></div>
   <div style="padding:12px 16px 10px;display:grid;gap:10px;border-bottom:1px solid var(--rule);background:var(--paper)">
@@ -470,12 +470,14 @@ function discover() {
       <input class="search" id="q" type="search" placeholder="Search conference, school, journal, city" value="${esc(S.q)}" aria-label="Search conferences">
       <button class="btn" type="button" data-act="openFilters" style="white-space:nowrap;${n ? "border-color:var(--accent);color:var(--accent)" : ""}">Filters${n ? ` (${n})` : ""}</button>
     </div>
+    <div class="seg seg-full" role="tablist">
+      <button class="chip" type="button" role="tab" data-act="dTab" data-v="all" aria-pressed="${!you}">All conferences · ${REAL.length}</button>
+      <button class="chip" type="button" role="tab" data-act="dTab" data-v="you" aria-pressed="${you}">For you · ${nYou}</button>
+    </div>
     <div class="seg">${quickFilters().map(([k, v, l]) => `<button class="chip" type="button" data-act="quick" data-k="${k}" data-v="${esc(v)}" aria-pressed="${S.f[k].includes(v)}">${esc(l)}</button>`).join("")}</div>
   </div>
   <div class="scroll">
-    ${!filtering ? `<div class="section-title">Recommended for you</div>
-      <div class="cmeta">Open or upcoming conferences that match your disciplines, specialisations, regions and tiers, nearest deadline first. <button type="button" data-act="editPrefs" style="background:none;border:0;padding:0;color:var(--accent);text-decoration:underline">Edit preferences</button></div>
-      ${recs.length ? recs.map(card).join("") : `<div class="empty">Nothing open matches your preferences right now. Try widening them.</div>`}<div class="section-title">All conferences</div>` : ""}
+    ${you ? `<div class="cmeta">Conferences that match your disciplines, specialisations, regions and tiers. <button type="button" data-act="editPrefs" style="background:none;border:0;padding:0;color:var(--accent);text-decoration:underline">Edit preferences</button></div>` : ""}
     <div id="dlist" style="display:grid;gap:12px">${discoverList()}</div>
     ${note("Filter and sort on the server: tier, region, country, year, status, discipline and format are stored as fields on each conference. Saved filters could later power personal alerts.")}
   </div>`;
@@ -952,7 +954,7 @@ document.addEventListener("click", async e => {
       break;
     }
     case "permDeny": u.system = false; S.modal = null; break;
-    case "tab": S.tab = v; S.detail = null; S.sub = null; S.modal = null; if (v === "leaders") S.board.rows = null; render(); scrollTop(); if (v === "leaders") loadBoard(); return;
+    case "tab": if (b.dataset.all) S.dTab = "all"; S.tab = v; S.detail = null; S.sub = null; S.modal = null; if (v === "leaders") S.board.rows = null; render(); scrollTop(); if (v === "leaders") loadBoard(); return;
     case "open": S.detail = id; S.modal = null; pushNav("detail"); render(); scrollTop(); return;
     case "back": S.detail = null; popNav(); break;
     case "setStatus": {
@@ -968,6 +970,7 @@ document.addEventListener("click", async e => {
     case "fToggle": { const a2 = S.fDraft[b.dataset.k]; S.fDraft[b.dataset.k] = a2.includes(v) ? a2.filter(x => x !== v) : [...a2, v]; break; }
     case "fReset": S.fDraft = blankF(); S.f = blankF(); toast("All filters cleared"); break;
     case "applyFilters": S.f = S.fDraft; S.modal = null; popNav(); break;
+    case "dTab": S.dTab = v; render(); scrollTop(); return;
     case "quick": case "unfilter": { const k = b.dataset.k; S.f[k] = S.f[k].includes(v) ? S.f[k].filter(x => x !== v) : [...S.f[k], v]; break; }
     case "clearFilters": S.f = blankF(); break;
     case "notes": S.showNotes = !S.showNotes; break;

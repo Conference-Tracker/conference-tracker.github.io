@@ -111,11 +111,11 @@
     async updateSuggestion(id, patch) { const x = load(); const s = x.suggestions.find(r => r.id === id); if (s) Object.assign(s, patch); store(x); },
     async setFeedbackHelpful(id, helpful) { const x = load(); const f = x.feedback.find(r => r.id === id); if (f) f.helpful = helpful; store(x); },
     async leaderboard() {
-      // Same rules as the database function: only people who opted in, with the name they chose.
+      // Same rules as the database function: everyone who contributed; the chosen name only for people who opted in.
       const x = load(), me = x.session && x.session.id, out = [];
       Object.entries(x.users).forEach(([uid, rec]) => {
-        const p = rec.profile; if (!p || !p.lb_opt_in) return;
-        const name = p.lb_name || (p.name || "").split(" ")[0] || "Scholar";
+        const p = rec.profile; if (!p) return;
+        const name = p.lb_opt_in ? (p.lb_name || (p.name || "").split(" ")[0] || "Scholar") : "A tester";
         const fb = x.feedback.filter(f => f.user_id === uid).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
         const wk = {}; let rp = 0;
         fb.forEach(f => { const d = new Date(f.created_at); const day = (d.getDay() + 6) % 7; d.setHours(0,0,0,0); d.setDate(d.getDate() - day); const k = d.toISOString(); wk[k] = (wk[k] || 0) + 1; if (wk[k] <= 3) rp += 3; if (f.helpful) rp += 5; });

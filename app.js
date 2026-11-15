@@ -45,7 +45,7 @@ function status(c) {
   if (c.deadline && daysUntil(c.deadline) >= 0) return { key:"open", label:"Open for submissions", cls:"st-open" };
   const ahead = c.start ? daysUntil(c.end || c.start) >= 0 : (!c.deadline || daysUntil(c.deadline) > -270);       // this edition hasn't happened yet
   const closedNote = /^(closed|submissions closed)|\(closed\)|likely closed/i.test(c.deadlineNote || "");
-  if (ahead && ((c.deadline && daysUntil(c.deadline) < 0) || closedNote)) return { key:"closed", label:"Closed", cls:"st-up" }; // deadline has passed
+  if (ahead && ((c.deadline && daysUntil(c.deadline) < 0) || closedNote)) return { key:"closed", label:"Submissions closed", cls:"st-up" }; // deadline has passed
   return { key:"expected", label:"Expected", cls:"st-tba" };                                                          // call not out yet (dates may be known)
 }
 
@@ -203,11 +203,12 @@ function deadlinePill(c) {
     const n = daysUntil(c.deadline);
     return `<span class="pill ${n <= 30 ? "p-soon" : "p-open"}">${n === 0 ? "Closes today" : n === 1 ? "Closes tomorrow" : `Closes in ${n} days`}</span>`;
   }
-  if (c._status.key === "closed") return `<span class="pill p-muted">Closed</span>`;
+  if (c._status.key === "closed") return `<span class="pill p-muted">Submissions closed</span>`;
   if (c._status.key === "tbc") return `<span class="pill p-muted">To be confirmed</span>`;
-  return `<span class="pill p-muted">Expected · call not out yet</span>`;
+  return `<span class="pill p-muted">${pastEdition(c) ? "Expected · next edition" : "Expected · call not out yet"}</span>`;
 }
-const whenText = c => c.start ? fmtRange(c.start, c.end) : (c.dateText || "Dates to be announced");
+const pastEdition = c => !!c.start && daysUntil(c.end || c.start) < 0;
+const whenText = c => c.start ? (pastEdition(c) ? `Last held ${fmtRange(c.start, c.end)} · next edition to be announced` : fmtRange(c.start, c.end)) : (c.dateText || "Dates to be announced");
 const statusPill = id => { const m = S.marks[id]; return m && m.status ? `<span class="pill p-status">${esc(ST[m.status].short)}</span>` : ""; };
 const note = html => S.showNotes ? `<div class="note-be"><b>Back end:</b> ${html}</div>` : "";
 
@@ -221,7 +222,7 @@ function card(c) {
         <div class="cmeta">${esc(whenText(c))}</div>
       </button>
     </div>
-    <div class="pills">${deadlinePill(c)}${statusPill(c.id)}<button class="btn small" type="button" data-act="open" data-id="${c.id}" style="margin-left:auto">${S.marks[c.id] && S.marks[c.id].status ? "Change status" : "Set status"}</button></div>
+    <div class="pills">${deadlinePill(c)}${c.docEvent ? `<span class="pill p-muted">Doctoral event</span>` : ""}${statusPill(c.id)}<button class="btn small" type="button" data-act="open" data-id="${c.id}" style="margin-left:auto">${S.marks[c.id] && S.marks[c.id].status ? "Change status" : "Set status"}</button></div>
   </div>`;
 }
 
@@ -286,7 +287,7 @@ function welcome() {
     <div class="stack"><h1>Every management conference worth your paper, in one place</h1>
     <p>A*, A, B and C conferences in India and abroad, with reminders for the deadlines that matter to you.</p>
     ${API.mode === "demo" ? `<p style="font-size:13px">Demo mode: not yet connected to the database, so everything stays in this browser.</p>` : `<p style="font-size:13px">Preview version. Your account works on any phone or laptop you sign in from.</p>`}</div>
-    ${S.emailSent ? `<div class="card"><p class="cname">Check your email</p><div class="cmeta" style="color:var(--ink)">We've sent a sign-in link to <b>${esc(S.emailSent)}</b>. Open it on this device to continue.</div><button class="btn small" type="button" data-act="emailAgain" style="justify-self:start">Use a different email</button></div>` : `<div class="stack">
+    ${S.emailSent ? `<div class="card"><p class="cname">Check your email</p><div class="cmeta" style="color:var(--ink)">We've sent a sign-in link to <b>${esc(S.emailSent)}</b>. Open it on this device to continue.</div><div class="cmeta">If it hasn't arrived within a minute, please check your spam or promotions folder, and mark it "Not spam" so future reminders reach your inbox.</div><button class="btn small" type="button" data-act="emailAgain" style="justify-self:start">Use a different email</button></div>` : `<div class="stack">
       <button class="btn primary block" type="button" data-act="signin" data-v="google">Continue with Google</button>
       <div class="divider">or</div>
       <div class="field"><label for="em">Email</label><input id="em" type="email" placeholder="you@university.edu" autocomplete="email"></div>
@@ -412,7 +413,9 @@ DATA.forEach(c => {
   const y = (c.start || c.dateText || "").match(/20\d\d/); c.year = y ? y[0] : "To be announced";
   c.fmt = /online/i.test(c.mode) && !/hybrid/i.test(c.mode) ? "Online" : /hybrid/i.test(c.mode) ? "Hybrid" : "In person";
   c.regionF = c.continent || "Location to be announced";
+  c.docEvent = c.areas.includes("Doctoral event");
 });
+const DOC_EV = "Doctoral events (for PhD scholars only)", DOC_CON = "Conferences with a doctoral consortium";
 const FKEYS = {
   tiers:   { label:"Tier", opts:() => ["A*","A","B","C","Unrated"], get:c => c._tier === "General" ? "Unrated" : c._tier },
   regions: { label:"Region", opts:() => [...REGIONS, "Location to be announced"], get:c => c.regionF },
@@ -420,7 +423,7 @@ const FKEYS = {
   years:   { label:"Year", opts:() => [...new Set(REAL.map(c => c.year))].sort(), get:c => c.year },
   status:  { label:"Submissions", opts:() => ["Open","Closed","Expected"], get:c => c._status.key === "open" ? "Open" : c._status.key === "closed" ? "Closed" : "Expected" },
   discs:   { label:"Discipline", opts:() => GROUPS.map(g => g.label), get:c => c.groups.map(groupLabel) },
-  doctoral:{ label:"Doctoral track", opts:() => ["Has a doctoral colloquium or consortium"], get:c => c.doctoral ? "Has a doctoral colloquium or consortium" : "" },
+  doctoral:{ label:"Doctoral", opts:() => [DOC_EV, DOC_CON], get:c => c.docEvent ? DOC_EV : c.doctoral ? DOC_CON : "" },
   formats: { label:"Format", opts:() => ["In person","Hybrid","Online"], get:c => c.fmt }
 };
 const blankF = () => Object.fromEntries(Object.keys(FKEYS).map(k => [k, []]));
@@ -450,19 +453,20 @@ function filtered(f = S.f) {
 }
 const activeCount = (f = S.f) => Object.values(f).reduce((n, a) => n + a.length, 0);
 // Quick filters are built from the person's own preferences, so they're relevant to them.
-const DOC_OPT = "Has a doctoral colloquium or consortium";
+const DOC_OLD = "Has a doctoral colloquium or consortium";
 function quickFilters() {
   const u = S.user || {};
   const q = [["status","Open","Open now"], ["status","Expected","Expected"]];
   (u.tiers || []).forEach(t => q.push(["tiers", t, t]));
   (u.regions || []).filter(r => REGIONS.includes(r)).forEach(r => q.push(["regions", r, r]));
   (u.countries || []).slice(0, 3).forEach(c => q.push(["countries", c, c]));
-  q.push(["doctoral", DOC_OPT, "Doctoral track"]);
+  q.push(["doctoral", DOC_EV, "Doctoral events"], ["doctoral", DOC_CON, "Doctoral consortium"]);
   return q;
 }
 
 function discover() {
   S.f = { ...blankF(), ...(S.f || {}) };
+  S.f.doctoral = [...new Set(S.f.doctoral.flatMap(v => v === DOC_OLD ? [DOC_EV, DOC_CON] : [v]))];
   const you = S.dTab === "you", nYou = REAL.filter(forYou).length;
   const n = activeCount();
   return `<div class="appbar"><h2>Discover</h2></div>
@@ -533,12 +537,12 @@ function detail(c) {
   return `<div class="appbar"><button class="iconbtn" type="button" data-act="back" aria-label="Back">${ICON.back}</button><h2 style="font-size:17px">Conference</h2></div>
   <div class="scroll">
     <div class="crow">${tierBadge(c, true)}<div class="grow"><p class="cname" style="font-size:17px">${esc(c.name)}</p><div class="cmeta">${esc(c.host)}</div></div></div>
-    <div class="pills">${deadlinePill(c)}${statusPill(c.id)}</div>
+    <div class="pills">${deadlinePill(c)}${c.docEvent ? `<span class="pill p-muted">Doctoral event</span>` : ""}${statusPill(c.id)}</div>
     <div class="card"><dl class="kv">
       <dt>Dates</dt><dd>${esc(whenText(c))}</dd>
       <dt>Place</dt><dd>${esc(c.city)}${c.mode ? " · " + esc(c.mode) : ""}</dd>
       <dt>Deadline</dt><dd>${c.deadline ? esc(fmt(c.deadline)) + (daysUntil(c.deadline) < 0 ? " (passed)" : "") : esc(c.deadlineNote || "To be announced")}</dd>
-      <dt>Areas</dt><dd>${esc(c.areas.join(", "))}</dd>
+      <dt>Areas</dt><dd>${esc(c.areas.filter(a => a !== "Doctoral event").join(", "))}</dd>
     </dl>${c.note ? `<div class="cmeta">${esc(c.note)}</div>` : ""}<a href="${esc(c.url)}" target="_blank" rel="noopener">Official conference page</a></div>
     <div class="section-title">Your status</div>
     <div class="statuslist">${STATUSES.map(s => `<button class="statusopt" type="button" data-act="setStatus" data-id="${c.id}" data-v="${s.k}" aria-pressed="${m.status === s.k}"><span class="radio"></span><span><b>${s.label}</b><span class="d">${s.next}</span></span></button>`).join("")}</div>
@@ -711,7 +715,7 @@ const initialsOf = n => (n || "?").split(/\s+/).filter(Boolean).map(w => w[0]).s
 function leadersScreen() {
   const B = S.board, u = S.user, pts = myPoints(), meta = BOARDS[B.tab];
   (B.rows || []).forEach(r => { if (r.is_me) pts[BOARDS[r.board] ? BOARDS[r.board].key : "reviewer"] = r.points; }); // the server's count is authoritative
-  const ranked = bt => (B.rows || []).filter(r => r.board === bt).sort((a,b) => b.points - a.points || String(a.display_name).localeCompare(String(b.display_name)));
+  const ranked = bt => (B.rows || []).filter(r => r.board === bt).sort((a,b) => b.points - a.points || (a.display_name === "A tester") - (b.display_name === "A tester") || String(a.display_name).localeCompare(String(b.display_name)));
   const list = ranked(B.tab);
   const myIdx = list.findIndex(r => r.is_me), myPts = pts[meta.key];
   const inTop3 = bt => ranked(bt).slice(0,3).some(r => r.is_me);
@@ -723,12 +727,12 @@ function leadersScreen() {
       <div class="pod-step" style="height:${h}px"><b>${i + 1}</b><span>${r ? r.points + " pts" : "—"}</span></div></div>`; };
   const podium = B.rows ? `<div class="podium">${slot(1, 56)}${slot(0, 78)}${slot(2, 42)}</div>` : `<div class="empty">Loading…</div>`;
   let you;
-  if (!u.lbOptIn) you = `<div class="you-card"><div class="grow"><b>You have ${myPts} points</b><div class="cmeta">You're not shown on the board yet.</div></div><button class="btn small" type="button" data-act="lbOpt">Show me</button></div>`;
+  if (!u.lbOptIn) you = `<div class="you-card"><div class="grow"><b>You have ${myPts} points</b><div class="cmeta">${myPts ? "You appear as \"A tester\". Show your name if you like." : "Your name isn't shown on the board."}</div></div><button class="btn small" type="button" data-act="lbOpt">Show me</button></div>`;
   else if (myIdx < 0) you = `<div class="you-card"><div class="grow"><b>You</b><div class="cmeta">${B.rows ? "Earn your first points to join this board." : "Loading…"}</div></div><b>${myPts} pts</b></div>`;
   else { const above = list[myIdx - 1], gap = above ? above.points - list[myIdx].points + 1 : 0;
     const target = above ? Math.max(0, Math.min(100, Math.round(100 * list[myIdx].points / (above.points + 1)))) : 100;
     you = `<div class="you-card"><b class="you-rank">${myIdx + 1}</b><div class="grow"><b>You</b><div class="cmeta">${above ? `${gap} point${gap === 1 ? "" : "s"} to reach #${myIdx}` : "Top of the board. Well done."}</div><div class="bar"><span style="width:${target}%"></span></div></div><b>${list[myIdx].points} pts</b></div>`; }
-  const rest = list.slice(3).map((r, k) => `<div class="lb-row${r.is_me ? " me" : ""}"><span>${k + 4}</span><span class="grow">${esc(r.display_name)}${r.is_me ? " (you)" : ""}<span class="cmeta"> · ${r.items} ${meta.unit[r.items === 1 ? 0 : 1]}</span></span><b>${r.points}</b></div>`).join("");
+  const rest = list.map((r, k) => `<div class="lb-row${r.is_me ? " me" : ""}"><span>${k + 1}</span><span class="grow">${esc(r.display_name)}${r.is_me ? " (you)" : ""}<span class="cmeta"> · ${r.items} ${meta.unit[r.items === 1 ? 0 : 1]}</span></span><b>${r.points}</b></div>`).join("");
   const badge = (on, label) => `<span class="badge-chip${on ? " on" : ""}">${label}${on ? "" : `<span class="sr-only"> (not earned yet)</span>`}</span>`;
   const fbCount = (S.myFeedback || []).length;
   return `<div class="appbar"><div style="flex:1"><h2>Leaders</h2><div class="cmeta">${SEASON.name} · ends ${esc(ends)}</div></div></div>
@@ -736,7 +740,7 @@ function leadersScreen() {
     <div class="seg seg-full">${Object.entries(BOARDS).map(([k, m]) => `<button class="chip" type="button" data-act="boardTab" data-v="${k}" aria-pressed="${B.tab === k}">${m.tab}</button>`).join("")}</div>
     ${podium}
     ${you}
-    ${rest ? `<div class="lb-list">${rest}</div>` : ""}
+    ${rest ? `<div class="section-title">Everyone who has contributed · ${list.length}</div><div class="lb-list">${rest}</div><div class="cmeta">Testers who haven't chosen to show their name appear as "A tester". Thank you, all of you.</div>` : ""}
     <div class="section-title">Earn points</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <button class="btn" type="button" data-act="fbForm">Give feedback${fbCount ? ` (${fbCount})` : ""}</button>
@@ -745,11 +749,11 @@ function leadersScreen() {
     <div class="section-title">Your badges</div>
     <div class="badges">${badge(pts.founding, "Founding tester")}${badge(u.lbOptIn && inTop3("reviewers"), "Star reviewer")}${badge(u.lbOptIn && inTop3("suggesters"), "Star contributor")}</div>
     <div class="card">
-      <div class="toggle-row"><div><b>Show me on the board</b><div class="cmeta">Only the name below is shown. Nothing else about you.</div></div><button class="switch" type="button" role="switch" aria-checked="${!!u.lbOptIn}" data-act="lbOpt" aria-label="Show me on the board"></button></div>
+      <div class="toggle-row"><div><b>Show me on the board</b><div class="cmeta">Shows the name below with your points. When off, your points still count, shown as "A tester". Nothing else about you is shown.</div></div><button class="switch" type="button" role="switch" aria-checked="${!!u.lbOptIn}" data-act="lbOpt" aria-label="Show me on the board"></button></div>
       ${u.lbOptIn ? `<div class="field"><label for="lb-name">Name to show</label><input id="lb-name" data-ufield="lbName" value="${esc(u.lbName || defaultLbName())}" maxlength="40"></div>` : ""}
     </div>
     <details class="card"><summary style="cursor:pointer;font-weight:600;font-size:14px">How points work</summary>
-      <div class="cmeta" style="color:var(--ink)">Top reviewers: 3 points for each piece of feedback (up to 3 a week), plus 5 when the team marks it helpful. Top contributors: 3 points for each conference you suggest, 10 once it's added to the app. The top three on each board earn the Star reviewer or Star contributor badge. Everyone who contributes during the ${SEASON.name.toLowerCase()} is a Founding tester.</div></details>
+      <div class="cmeta" style="color:var(--ink)">Top reviewers: 3 points for each piece of feedback (up to 3 a week), plus 5 when the team marks it helpful. Top contributors: 3 points for each conference you suggest, 10 once it's added to the app. Everyone who contributes is listed; those who haven't switched on their name appear as "A tester". The top three on each board who show their name earn the Star reviewer or Star contributor badge. Everyone who contributes during the ${SEASON.name.toLowerCase()} is a Founding tester.</div></details>
   </div>`;
 }
 const defaultLbName = () => { const p = (S.user.name || "").trim().split(/\s+/); return p.length > 1 ? `${p[0]} ${p[p.length - 1][0]}.` : (p[0] || "Scholar"); };
